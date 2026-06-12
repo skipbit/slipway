@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#4f46e5"/>
+  <!-- mainsail -->
+  <path d="M33 10 L33 38 L15 38 Z" fill="#ffffff"/>
+  <!-- jib -->
+  <path d="M37 16 L37 38 L49 38 Z" fill="#c7d2fe"/>
+  <!-- hull -->
+  <path d="M12 43 H52 L45 51 H19 Z" fill="#ffffff"/>
+</svg>
