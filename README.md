@@ -77,7 +77,7 @@ longest to get right:
 | License | MIT | Commercial |
 | Price | Free | **$149** early access |
 
-<!-- GUMROAD_LINK -->
+→ **[Get Slipway Pro — $149 early access](https://skipbit.gumroad.com/l/slipway-pro)**
 
 ## Project structure
 
@@ -195,7 +195,7 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 | ライセンス | MIT | 商用 |
 | 価格 | 無料 | **$149** アーリーアクセス |
 
-<!-- GUMROAD_LINK -->
+→ **[Slipway Pro を入手 — $149 アーリーアクセス](https://skipbit.gumroad.com/l/slipway-pro)**
 
 ## プロジェクト構成
 
