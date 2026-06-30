@@ -59,26 +59,6 @@ This is the part other boilerplates don't ship:
 Open the repo with [Claude Code](https://claude.com/claude-code) and try:
 `/new-page projects — list the user's projects with a create form`.
 
-## Slipway lite vs Slipway Pro
-
-This repo is **Slipway lite** — free and MIT licensed, and a complete,
-deployable app on its own. **Slipway Pro** adds the parts that take the
-longest to get right:
-
-| | lite (this repo) | Pro |
-| --- | :---: | :---: |
-| Auth (email/password + Google OAuth) | ✅ | ✅ |
-| Dashboard shell, settings, account deletion | ✅ | ✅ |
-| Landing page + Claude Code workspace | ✅ | ✅ |
-| Stripe billing, verified end to end (checkout, customer portal, webhook sync, plan gating) | — | ✅ |
-| E2E test suite | — | ✅ |
-| Automated setup (one command from clone to running app) | — | ✅ |
-| 12 months of updates | — | ✅ |
-| License | MIT | Commercial |
-| Price | Free | **$149** early access |
-
-→ **[Get Slipway Pro — $149 early access](https://skipbit.gumroad.com/l/slipway-pro)**
-
 ## Project structure
 
 ```
@@ -106,7 +86,7 @@ middleware.ts              cookie check for /dashboard (authoritative check in l
 
 - No email verification or password reset flow (requires an email provider —
   Resend/Postmark is the natural next step).
-- No tests in this edition (the E2E suite ships with Pro).
+- No automated tests included.
 - Placeholder stats on the dashboard overview.
 
 ## License
@@ -177,26 +157,6 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 `/new-page projects — ユーザーのプロジェクト一覧と作成フォーム` を試してみて
 ください。
 
-## Slipway lite と Slipway Pro
-
-このリポジトリは **Slipway lite** — 無料・MIT ライセンスで、単体でデプロイ可
-能な完成したアプリです。**Slipway Pro** には、正しく作るのに最も時間がかかる
-部分が追加されています:
-
-| | lite(このリポジトリ) | Pro |
-| --- | :---: | :---: |
-| 認証(メール/パスワード + Google OAuth) | ✅ | ✅ |
-| ダッシュボード、設定、アカウント削除 | ✅ | ✅ |
-| ランディングページ + Claude Code ワークスペース | ✅ | ✅ |
-| Stripe 課金一式・E2E 検証済み(チェックアウト、カスタマーポータル、Webhook 同期、プラン制御) | — | ✅ |
-| E2E テストスイート | — | ✅ |
-| セットアップ自動化(クローンから起動まで1コマンド) | — | ✅ |
-| 12ヶ月のアップデートアクセス | — | ✅ |
-| ライセンス | MIT | 商用 |
-| 価格 | 無料 | **$149** アーリーアクセス |
-
-→ **[Slipway Pro を入手 — $149 アーリーアクセス](https://skipbit.gumroad.com/l/slipway-pro)**
-
 ## プロジェクト構成
 
 ```
@@ -224,7 +184,7 @@ middleware.ts              /dashboard の Cookie チェック(正式な検証は
 
 - メール認証・パスワードリセットなし(メールプロバイダが必要 — Resend /
   Postmark の導入が自然な次の一歩)。
-- このエディションにテストはなし(E2E スイートは Pro に同梱)。
+- 自動テストは含まれません。
 - ダッシュボード概要の統計はプレースホルダー。
 
 ## ライセンス
