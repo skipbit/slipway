@@ -1,0 +1,59 @@
+# Production-like stack: the standalone Next image + Postgres.
+# Self-contained (NOT an override of docker-compose.yml) so the dev bind mount
+# can never shadow the built image.
+#
+#   docker compose -f docker-compose.prod.yml up --build   # http://localhost:3000
+#
+# `migrate` applies the schema once (from the builder stage, which has the Prisma
+# CLI) before the slim runner starts.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: slipway
+      POSTGRES_PASSWORD: slipway
+      POSTGRES_DB: slipway
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slipway -d slipway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      target: builder
+    command: npx prisma db push --skip-generate --accept-data-loss
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://slipway:slipway@db:5432/slipway?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://slipway:slipway@db:5432/slipway?schema=public
+      # Fail fast with a clear message if AUTH_SECRET is unset/empty in .env.
+      AUTH_SECRET: "${AUTH_SECRET:?AUTH_SECRET is required — set it in .env (openssl rand -base64 32)}"
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

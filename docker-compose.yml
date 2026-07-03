@@ -1,0 +1,52 @@
+# Local development stack: Postgres + the app in `next dev` with hot reload.
+#
+#   cp .env.example .env      # then set AUTH_SECRET (openssl rand -base64 32)
+#   docker compose up         # http://localhost:3000
+#
+# Source is bind-mounted, so edits reload live. node_modules and .next stay in
+# container-only volumes (host binaries never leak in). Postgres is published on
+# :5432 so a host-side `npm run dev` can share the same database if you prefer.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: slipway
+      POSTGRES_PASSWORD: slipway
+      POSTGRES_DB: slipway
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slipway -d slipway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      target: dev
+    command: sh -c "npx prisma generate && npx prisma db push --accept-data-loss && npm run dev"
+    env_file: .env
+    environment:
+      # Inside the compose network the database is reachable as host `db`.
+      DATABASE_URL: postgresql://slipway:slipway@db:5432/slipway?schema=public
+      # Fail fast with a clear message if AUTH_SECRET is unset/empty in .env.
+      AUTH_SECRET: "${AUTH_SECRET:?AUTH_SECRET is required — set it in .env (openssl rand -base64 32)}"
+      # Helps file watching survive bind mounts on macOS / Windows / WSL.
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
