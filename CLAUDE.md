@@ -5,21 +5,30 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 Slipway: an AI-first Next.js 15 SaaS boilerplate. Marketing landing page +
-email/Google auth + protected dashboard. SQLite locally, designed to move to
-Postgres in production. This is the free (lite) edition — there is no billing
+email/Google auth + protected dashboard. Postgres everywhere, run through
+Docker Compose (local dev = `docker compose up` with hot reload; production =
+the standalone image). This is the free (lite) edition — there is no billing
 code in this repo.
 
 ## Commands
 
 ```bash
-npm run dev            # dev server (Turbopack) on :3000
+docker compose up      # Postgres + app (next dev, hot reload) on :3000 — the dev workflow
+docker compose down    # stop the stack (add -v to also wipe the db volume)
+npm run dev            # host-only dev server (Turbopack); needs a reachable Postgres
 npm run build          # production build (also the fastest full type-check)
 npm run lint           # eslint
-npx prisma db push     # sync schema to the local SQLite db (dev workflow)
+npx prisma db push     # sync schema to Postgres (dev workflow, no migration files)
 npx prisma generate    # regenerate client after schema changes
 npx prisma studio      # browse the database
 npx tsc --noEmit       # type-check without building
 ```
+
+Compose runs `prisma generate && prisma db push --accept-data-loss` on start, so
+schema edits apply on the next `docker compose up` (the flag keeps it
+non-interactive when a change would drop data — acceptable for dev). The app
+container runs as the non-root `node` user. Production-like build:
+`docker compose -f docker-compose.prod.yml up --build`.
 
 There is no test suite in this edition. Verify changes with
 `npm run build && npm run lint && npx tsc --noEmit` at minimum
@@ -37,9 +46,10 @@ There is no test suite in this edition. Verify changes with
   presence* check only (fast, edge-safe, no Prisma). The authoritative
   `auth()` check is in `app/dashboard/layout.tsx`. Keep both when adding
   protected areas; never rely on middleware alone.
-- **DB**: Prisma 6 + SQLite (`prisma/dev.db`). Dev workflow uses `db push`
-  (no migration files yet). When switching to Postgres, change the
-  datasource provider and start `prisma migrate dev`.
+- **DB**: Prisma 6 + Postgres (provider `postgresql`), run via Docker Compose
+  in dev and prod. Dev workflow uses `db push` (no migration files yet); adopt
+  `prisma migrate` when you need a real migration history. `lib/prisma.ts`
+  memoizes the client across hot reloads.
 - **Branding** lives in `lib/site.ts` (`siteConfig`); never hardcode the
   product name in components.
 

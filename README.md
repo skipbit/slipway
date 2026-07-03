@@ -15,27 +15,29 @@ get your product into the water fast.
 
 - **Next.js 15** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
-- **Prisma 6 + SQLite** — zero-config local dev; swap the provider line and DATABASE_URL for Postgres in production
+- **Prisma 6 + Postgres** — one-command local stack via Docker Compose; the same containerized app + Postgres in production
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
 - **Claude Code workspace** — `CLAUDE.md`, 3 agents, 3 slash commands, sane permissions (see below)
 
 ## Quick start
 
-Requirements: Node.js 20+.
+Requirements: Docker (with Compose). No local Node or Postgres needed.
 
 ```bash
 git clone <repo-url> my-app && cd my-app
-npm install
 cp .env.example .env
 # set AUTH_SECRET in .env — generate one with: openssl rand -base64 32
-npx prisma db push            # creates the local SQLite db
-npm run dev
+docker compose up             # Postgres + the app with hot reload
 ```
 
 Open http://localhost:3000 — email/password signup works immediately, no
-external services required. From clone to a signed-in dashboard in well under
-30 minutes (typically under 5).
+external services required. Edits reload live. From clone to a signed-in
+dashboard in well under 30 minutes (typically under 5).
+
+Prefer the host? With Node.js 20+ and the compose Postgres running
+(`docker compose up db`), point `DATABASE_URL` at `localhost:5432` in `.env`,
+then `npm install && npx prisma db push && npm run dev`.
 
 To enable Google sign-in later, create OAuth credentials in the
 [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
@@ -76,11 +78,26 @@ middleware.ts              cookie check for /dashboard (authoritative check in l
 
 ## Going to production
 
-1. Switch `prisma/schema.prisma` datasource to `postgresql`, set
-   `DATABASE_URL`, and run `npx prisma migrate dev` to create real migrations.
-2. Set `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, and (optionally) the Google OAuth
-   vars on your host. Vercel works out of the box.
-3. Add your production domain to the Google OAuth client redirect URIs.
+The stack is already Postgres. Two paths:
+
+- **Docker anywhere** — build the standalone image and run it against a managed
+  Postgres. Verify the production build locally first:
+  ```bash
+  docker compose -f docker-compose.prod.yml up --build
+  ```
+  This runs the schema push, then serves the slim `next start` (standalone)
+  image on http://localhost:3000. Point `DATABASE_URL` at your real database
+  and deploy the same image to Fly.io / Railway / Cloud Run / a VPS.
+- **Vercel** — works out of the box; set `DATABASE_URL` (managed Postgres) plus
+  the env vars below.
+
+Then:
+
+1. Set `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `DATABASE_URL`, and (optionally) the
+   Google OAuth vars.
+2. Add your production domain to the Google OAuth client redirect URIs.
+3. For a real migration history, adopt `prisma migrate` (`migrate dev` locally,
+   `migrate deploy` in the container) instead of the `db push` default.
 
 ## Known limitations (deliberate scope cuts)
 
@@ -112,27 +129,29 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 
 - **Next.js 15** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
-- **Prisma 6 + SQLite** — 設定不要のローカル開発。本番は provider 1行と DATABASE_URL の変更で Postgres へ
+- **Prisma 6 + Postgres** — Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
 - **Claude Code ワークスペース** — `CLAUDE.md`、エージェント3体、スラッシュコマンド3個、適切な権限設定
 
 ## クイックスタート
 
-必要環境: Node.js 20+
+必要環境: Docker(Compose 同梱)。ローカルの Node や Postgres は不要。
 
 ```bash
 git clone <repo-url> my-app && cd my-app
-npm install
 cp .env.example .env
 # .env の AUTH_SECRET を設定 — 生成コマンド: openssl rand -base64 32
-npx prisma db push            # ローカル SQLite DB を作成
-npm run dev
+docker compose up             # Postgres とアプリをホットリロードで起動
 ```
 
 http://localhost:3000 を開けば、メール/パスワードでのサインアップが外部サー
-ビスなしで即座に動きます。クローンからダッシュボードへのログインまで30分以内
-(通常は5分以内)。
+ビスなしで即座に動きます。ファイル編集は即座に反映されます。クローンからダッ
+シュボードへのログインまで30分以内(通常は5分以内)。
+
+ホストで直接動かしたい場合は、Node.js 20+ と compose の Postgres
+(`docker compose up db`)を用意し、`.env` の `DATABASE_URL` を
+`localhost:5432` に向けて `npm install && npx prisma db push && npm run dev`。
 
 Google ログインを有効にするには、[Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 で OAuth 認証情報を作成し(リダイレクト URI:
@@ -174,11 +193,26 @@ middleware.ts              /dashboard の Cookie チェック(正式な検証は
 
 ## 本番運用へ
 
-1. `prisma/schema.prisma` の datasource を `postgresql` に変更し、
-   `DATABASE_URL` を設定、`npx prisma migrate dev` で正式なマイグレーションを作成。
-2. ホスティング先に `AUTH_SECRET`、`NEXT_PUBLIC_APP_URL`、(必要なら)Google
-   OAuth の環境変数を設定。Vercel ならそのまま動きます。
-3. Google OAuth クライアントのリダイレクト URI に本番ドメインを追加。
+スタックは既に Postgres。経路は2つ：
+
+- **Docker でどこへでも** — standalone イメージをビルドし、マネージド Postgres
+  に対して起動。まずローカルで本番ビルドを検証：
+  ```bash
+  docker compose -f docker-compose.prod.yml up --build
+  ```
+  スキーマ適用の後、スリムな standalone イメージが http://localhost:3000 で起動。
+  `DATABASE_URL` を本番 DB に向ければ、同じイメージを Fly.io / Railway /
+  Cloud Run / VPS へデプロイできます。
+- **Vercel** — そのまま動作。`DATABASE_URL`(マネージド Postgres)と下記の環境
+  変数を設定するだけ。
+
+その上で：
+
+1. `AUTH_SECRET`、`NEXT_PUBLIC_APP_URL`、`DATABASE_URL`、(必要なら)Google OAuth
+   の環境変数を設定。
+2. Google OAuth クライアントのリダイレクト URI に本番ドメインを追加。
+3. 正式なマイグレーション履歴が欲しい場合は、既定の `db push` に代えて
+   `prisma migrate`(ローカルは `migrate dev`、コンテナは `migrate deploy`)を採用。
 
 ## 既知の制限(意図的なスコープ)
 
