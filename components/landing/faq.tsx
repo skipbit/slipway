@@ -2,12 +2,12 @@ const faqs = [
   {
     question: "Is Slipway really free?",
     answer:
-      "Yes. This edition is MIT licensed — use it for personal and commercial projects, no attribution required. A paid Pro edition with production billing, end-to-end tests, and 12 months of updates is available separately (see the README).",
+      "Yes — completely. Slipway is a single MIT-licensed edition: use it for personal and commercial projects, no attribution required. No paid tier, no upsell.",
   },
   {
     question: "What do I need to run it?",
     answer:
-      "Node.js 20+ and npm. The local database is SQLite, so there is nothing else to install — clone, set one secret, and you are running in minutes.",
+      "Just Docker with Compose. Postgres and the app start together with a single command — clone, set one secret, and you are running in minutes. Prefer the host? Node.js 22+ works too.",
   },
   {
     question: "What makes it AI-first?",
@@ -17,7 +17,7 @@ const faqs = [
   {
     question: "Can I take it to production?",
     answer:
-      "Yes. Switch the Prisma datasource from SQLite to Postgres, set your environment variables, and deploy to any Node.js host — Vercel works out of the box.",
+      "Yes. It runs on Postgres out of the box — point DATABASE_URL at your production database, set your environment variables, and deploy to any Node.js host, or ship the included production Docker Compose stack.",
   },
 ];
 

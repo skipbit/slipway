@@ -29,7 +29,7 @@ const features = [
   {
     name: "Type-safe database",
     description:
-      "Prisma ORM with SQLite for instant local dev — switch one line to run Postgres in production.",
+      "Prisma ORM on Postgres, with a one-command Docker Compose stack for local dev and the same database in production.",
     icon: Database,
   },
   {

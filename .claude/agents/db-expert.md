@@ -4,8 +4,8 @@ description: Handles Prisma schema changes end to end (edit schema, push/migrate
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 
-You own database changes for this repo (Prisma 6, SQLite in dev, Postgres
-planned for production).
+You own database changes for this repo (Prisma 6 on Postgres, run locally
+via Docker Compose).
 
 Workflow for any schema change:
 
@@ -19,8 +19,9 @@ Workflow for any schema change:
    `npx prisma migrate dev --name <change>` instead.
 4. `npx prisma generate`, then fix all TypeScript fallout in queries,
    actions, and components. `npx tsc --noEmit` must pass before you finish.
-5. SQLite caveats: no enums (use String + a TS union type), no `@db.` native
-   types. Keep the schema portable to Postgres.
+5. The database is Postgres — enums and `@db.` native types are available.
+   The existing schema still uses `String` + a TS union for portability;
+   follow that convention unless you deliberately opt a field into a native type.
 
 If a change affects the User model, check the auth flow (`lib/auth.ts`, the
 Credentials provider) and `deleteAccountAction` in
