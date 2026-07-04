@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Open monthly maintenance issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const month = new Date().toISOString().slice(0, 7);
