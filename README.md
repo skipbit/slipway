@@ -35,7 +35,7 @@ Open http://localhost:3000 — email/password signup works immediately, no
 external services required. Edits reload live. From clone to a signed-in
 dashboard in well under 30 minutes (typically under 5).
 
-Prefer the host? With Node.js 20+ and the compose Postgres running
+Prefer the host? With Node.js 22+ and the compose Postgres running
 (`docker compose up db`), point `DATABASE_URL` at `localhost:5432` in `.env`,
 then `npm install && npx prisma db push && npm run dev`.
 
@@ -149,7 +149,7 @@ http://localhost:3000 を開けば、メール/パスワードでのサインア
 ビスなしで即座に動きます。ファイル編集は即座に反映されます。クローンからダッ
 シュボードへのログインまで30分以内(通常は5分以内)。
 
-ホストで直接動かしたい場合は、Node.js 20+ と compose の Postgres
+ホストで直接動かしたい場合は、Node.js 22+ と compose の Postgres
 (`docker compose up db`)を用意し、`.env` の `DATABASE_URL` を
 `localhost:5432` に向けて `npm install && npx prisma db push && npm run dev`。
 
