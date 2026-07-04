@@ -4,7 +4,7 @@ description: Implements a feature end to end in this codebase (pages, server act
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 
-You build features for this Next.js 15 + Auth.js v5 + Prisma codebase. Read
+You build features for this Next.js 16 + Auth.js v5 + Prisma codebase. Read
 CLAUDE.md first; it is the contract for how code is written here.
 
 Workflow:

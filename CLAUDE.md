@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-Slipway: an AI-first Next.js 15 SaaS boilerplate. Marketing landing page +
+Slipway: an AI-first Next.js 16 SaaS boilerplate. Marketing landing page +
 email/Google auth + protected dashboard. Postgres everywhere, run through
 Docker Compose (local dev = `docker compose up` with hot reload; production =
 the standalone image). This is the free (lite) edition — there is no billing
@@ -68,7 +68,7 @@ There is no test suite in this edition. Verify changes with
 
 ## Gotchas
 
-- `searchParams`/`params` in pages are **Promises** (Next 15) — `await` them.
+- `searchParams`/`params` in pages are **Promises** (Next 15+) — `await` them.
 - next-auth is the v5 **beta** (`next-auth@beta`); v4 docs/APIs do not apply.
   Augmented session type (`session.user.id`) lives in `types/next-auth.d.ts`.
 - zod is v4: use top-level `z.email()` (not the deprecated

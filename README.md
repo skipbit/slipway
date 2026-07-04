@@ -13,7 +13,7 @@ get your product into the water fast.
 
 ## What's inside
 
-- **Next.js 15** — App Router, React Server Components, Server Actions, Turbopack
+- **Next.js 16** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
 - **Prisma 6 + Postgres** — one-command local stack via Docker Compose; the same containerized app + Postgres in production
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
@@ -52,7 +52,7 @@ This is the part other boilerplates don't ship:
 | --- | --- |
 | `CLAUDE.md` | Teaches the AI the architecture, conventions, and gotchas of this codebase |
 | `agents/feature-builder` | Implements multi-file features end to end, following the house style |
-| `agents/code-reviewer` | Reviews diffs for auth, validation, and Next.js 15 pitfalls before you commit |
+| `agents/code-reviewer` | Reviews diffs for auth, validation, and Next.js 16 pitfalls before you commit |
 | `agents/db-expert` | Owns Prisma schema changes: edit → push → regenerate → fix fallout |
 | `/new-page` | Scaffolds a protected dashboard page wired into the sidebar |
 | `/add-model` | Adds a Prisma model with conventions and validation wired through |
@@ -127,7 +127,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 
 ## 含まれるもの
 
-- **Next.js 15** — App Router、React Server Components、Server Actions、Turbopack
+- **Next.js 16** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
 - **Prisma 6 + Postgres** — Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
@@ -166,7 +166,7 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 | --- | --- |
 | `CLAUDE.md` | このコードベースのアーキテクチャ・規約・落とし穴を AI に教える |
 | `agents/feature-builder` | 複数ファイルにまたがる機能を設計規約に沿って一気通貫で実装 |
-| `agents/code-reviewer` | コミット前に認証・バリデーション・Next.js 15 の落とし穴をレビュー |
+| `agents/code-reviewer` | コミット前に認証・バリデーション・Next.js 16 の落とし穴をレビュー |
 | `agents/db-expert` | Prisma スキーマ変更を担当: 編集 → push → 再生成 → 影響箇所の修正 |
 | `/new-page` | サイドバーに組み込まれた保護済みダッシュボードページを scaffold |
 | `/add-model` | 規約とバリデーション込みで Prisma モデルを追加 |
