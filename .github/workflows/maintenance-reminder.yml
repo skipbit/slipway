@@ -24,7 +24,7 @@ jobs:
               '',
               '- [ ] Dependencies: review Dependabot PRs, merge when CI is green',
               '- [ ] Security: `npm audit` / Dependabot alerts — leave no dangerous advisory open',
-              '- [ ] Build: `npm run lint`, `npx tsc --noEmit`, and `npm run build` pass',
+              '- [ ] CI health: latest `main` run of the CI workflow is green, no required check failing (per-PR lint/tsc/build is automated there)',
               '- [ ] README freshness: supported versions and any "last verified" notes are current',
               '- [ ] Issue/PR triage: respond to anything inbound (MIT, as-is, no SLA)',
               '',
