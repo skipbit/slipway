@@ -1,0 +1,41 @@
+name: CI
+
+# Verifies every PR (and every push to main): lint, typecheck, production build.
+# This edition has no test suite, so a green build is the safety net that catches
+# broken dependency updates — a react bump that leaves react-dom behind, an eslint
+# major that crashes lint — before they reach main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # `next build` reads DATABASE_URL at module-load time but never connects
+      # (see the builder stage in the Dockerfile). A syntactically valid dummy
+      # is enough, so no Postgres service — and no secrets — are required. This
+      # keeps CI green on Dependabot PRs, whose token is read-only.
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci?schema=public"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate      # must precede lint/tsc/build — avoids stale client types
+      - run: npm run lint             # standalone: next build does not run eslint
+      - run: npx tsc --noEmit
+      - run: npm run build            # the real check that react / react-dom versions agree
+      - run: npm audit --audit-level=high
+        continue-on-error: true       # informational — not a merge gate
