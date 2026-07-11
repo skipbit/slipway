@@ -1,5 +1,15 @@
 # Slipway — AI-first SaaS Boilerplate
 
+[![CI](https://github.com/skipbit/slipway/actions/workflows/pr-check.yml/badge.svg?branch=main)](https://github.com/skipbit/slipway/actions/workflows/pr-check.yml)
+[![License: MIT](https://img.shields.io/github/license/skipbit/slipway)](./LICENSE)
+[![README: English | 日本語](https://img.shields.io/badge/README-English%20%7C%20%E6%97%A5%E6%9C%AC%E8%AA%9E-blue)](#slipway--ai-first-saas-ボイラープレート)
+
+[![Next.js](https://img.shields.io/github/package-json/dependency-version/skipbit/slipway/next?label=Next.js&logo=nextdotjs&logoColor=white&color=black)](./package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](./tsconfig.json)
+[![Prisma](https://img.shields.io/github/package-json/dependency-version/skipbit/slipway/dev/prisma?label=Prisma&logo=prisma&logoColor=white&color=2D3748)](./prisma/schema.prisma)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](./docker-compose.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](./.nvmrc)
+
 **English** | [日本語](#slipway--ai-first-saas-ボイラープレート)
 
 A Next.js SaaS starter built to be developed *with* AI. Most boilerplates give
@@ -90,6 +100,8 @@ The stack is already Postgres. Two paths:
   and deploy the same image to Fly.io / Railway / Cloud Run / a VPS.
 - **Vercel** — works out of the box; set `DATABASE_URL` (managed Postgres) plus
   the env vars below.
+
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
 
 Then:
 
@@ -205,6 +217,8 @@ middleware.ts              /dashboard の Cookie チェック(正式な検証は
   Cloud Run / VPS へデプロイできます。
 - **Vercel** — そのまま動作。`DATABASE_URL`(マネージド Postgres)と下記の環境
   変数を設定するだけ。
+
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
 
 その上で：
 
