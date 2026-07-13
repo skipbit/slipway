@@ -61,3 +61,17 @@ model VerificationToken {
 
   @@id([identifier, token])
 }
+
+// Fixed-window rate limiting for auth actions. One row per bucket key
+// (e.g. "login:<ip>"); the atomic upsert in lib/rate-limit.ts resets the
+// window in place once expiresAt passes, so the table only grows by the
+// number of distinct callers, not by request volume.
+model RateLimit {
+  key       String   @id
+  count     Int      @default(0)
+  // Timestamptz so the `expiresAt < now()` comparison in lib/rate-limit.ts is
+  // exact regardless of the DB session's TimeZone.
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
