@@ -28,6 +28,7 @@ get your product into the water fast.
 - **Prisma 6 + Postgres** — one-command local stack via Docker Compose; the same containerized app + Postgres in production
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
+- **Tested** — Vitest unit tests over the `lib/` logic + a Playwright smoke suite for the public pages, both wired into CI
 - **Claude Code workspace** — `CLAUDE.md`, 3 agents, 3 slash commands, sane permissions (see below)
 
 ## Quick start
@@ -115,7 +116,8 @@ Then:
 
 - No email verification or password reset flow (requires an email provider —
   Resend/Postmark is the natural next step).
-- No automated tests included.
+- Tests cover `lib/` logic (Vitest) and a public-page smoke run (Playwright);
+  there is no DB-backed signup → dashboard e2e flow yet.
 - Placeholder stats on the dashboard overview.
 
 ## License
@@ -144,6 +146,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 - **Prisma 6 + Postgres** — Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
+- **テスト付き** — `lib/` ロジックの Vitest 単体テスト + 公開ページの Playwright スモークテスト。どちらも CI に組み込み済み
 - **Claude Code ワークスペース** — `CLAUDE.md`、エージェント3体、スラッシュコマンド3個、適切な権限設定
 
 ## クイックスタート
@@ -232,7 +235,8 @@ middleware.ts              /dashboard の Cookie チェック(正式な検証は
 
 - メール認証・パスワードリセットなし(メールプロバイダが必要 — Resend /
   Postmark の導入が自然な次の一歩)。
-- 自動テストは含まれません。
+- テストは `lib/` ロジック(Vitest)と公開ページのスモーク(Playwright)をカバー。
+  DB を伴うサインアップ → ダッシュボードの e2e フローはまだ未整備。
 - ダッシュボード概要の統計はプレースホルダー。
 
 ## ライセンス

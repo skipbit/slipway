@@ -1,9 +1,9 @@
 name: CI
 
-# Verifies every PR (and every push to main): lint, typecheck, production build.
-# This edition has no test suite, so a green build is the safety net that catches
-# broken dependency updates — a react bump that leaves react-dom behind, an eslint
-# major that crashes lint — before they reach main.
+# Verifies every PR (and every push to main): lint, typecheck, unit tests,
+# production build, plus a Playwright smoke run. A green pipeline is the safety
+# net that catches broken dependency updates — a react bump that leaves
+# react-dom behind, an eslint major that crashes lint — before they reach main.
 on:
   pull_request:
   push:
@@ -36,6 +36,33 @@ jobs:
       - run: npx prisma generate      # must precede lint/tsc/build — avoids stale client types
       - run: npm run lint             # standalone: next build does not run eslint
       - run: npx tsc --noEmit
+      - run: npm run test             # vitest unit tests (lib/) — fast, no browser
       - run: npm run build            # the real check that react / react-dom versions agree
       - run: npm audit --audit-level=high
         continue-on-error: true       # informational — not a merge gate
+
+  # Playwright smoke run over the public pages. Kept separate so its browser
+  # download doesn't slow the fast lint/type/build feedback above. These pages
+  # never hit Postgres, so a dummy DATABASE_URL is enough — no service container.
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci?schema=public"
+      AUTH_SECRET: "e2e-dummy-secret-not-for-production"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate               # the dev webServer imports the client
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

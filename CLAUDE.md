@@ -22,6 +22,8 @@ npx prisma db push     # sync schema to Postgres (dev workflow, no migration fil
 npx prisma generate    # regenerate client after schema changes
 npx prisma studio      # browse the database
 npx tsc --noEmit       # type-check without building
+npm run test           # vitest unit tests (lib/) — fast, no browser or db
+npm run test:e2e       # playwright smoke e2e over the public pages
 ```
 
 Compose runs `prisma generate && prisma db push --accept-data-loss` on start, so
@@ -30,9 +32,14 @@ non-interactive when a change would drop data — acceptable for dev). The app
 container runs as the non-root `node` user. Production-like build:
 `docker compose -f docker-compose.prod.yml up --build`.
 
-There is no test suite in this edition. Verify changes with
-`npm run build && npm run lint && npx tsc --noEmit` at minimum
-(or run the `/preflight` command).
+Tests: **Vitest** for pure logic in `lib/` (`*.test.ts`, `node` env — mock
+`next/headers` and `@/lib/prisma`) and **Playwright** for a Postgres-free smoke
+run over the public pages (`e2e/*.spec.ts`). The suffixes keep the two runners
+from picking up each other's files. Add unit tests next to the code they cover;
+put browser flows under `e2e/`. Verify changes with
+`npm run lint && npx tsc --noEmit && npm run test && npm run build` at minimum
+(or run the `/preflight` command); run `npm run test:e2e` when you touch the
+public pages (needs `npx playwright install chromium` once).
 
 ## Architecture
 
@@ -90,7 +97,8 @@ There is no test suite in this edition. Verify changes with
 ## Current state / roadmap
 
 Done: landing (hero/features/FAQ), email+Google auth, dashboard
-(overview/settings), profile update, account deletion.
+(overview/settings), profile update, account deletion, auth rate limiting,
+Vitest unit tests + a Playwright smoke suite.
 Not done yet (good first tasks): email verification + password reset (needs
-Resend or similar), real dashboard metrics, tests (Vitest + Playwright
-recommended), Postgres migrations, rate limiting on auth actions.
+Resend or similar), real dashboard metrics, Postgres migrations, expanding e2e
+into a DB-backed signup → dashboard flow.
