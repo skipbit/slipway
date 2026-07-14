@@ -9,7 +9,11 @@ import {
 } from "vitest";
 
 // Mock the module boundaries so the limiter's JS logic can be exercised without
-// a real Postgres or Next.js request context.
+// a real Postgres or Next.js request context. NOTE: the fixed-window reset lives
+// in the SQL `ON CONFLICT ... CASE WHEN expiresAt < now()` (see rate-limit.ts),
+// which a mocked $queryRaw cannot exercise — that behaviour needs a Postgres-
+// backed integration test. Here we only cover the JS success/remaining/retry
+// arithmetic on hand-fed rows.
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {

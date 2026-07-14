@@ -10,8 +10,9 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     environment: "node",
-    // `*.test.ts` = Vitest; Playwright uses `e2e/*.spec.ts`. Keeping the
-    // suffixes distinct means neither runner ever picks up the other's files.
+    // Vitest owns `*.test.ts`; Playwright owns `e2e/*.spec.ts` (and pins its own
+    // testMatch to `*.spec.ts`). Excluding e2e/ here keeps the runners disjoint
+    // even if a `*.test.ts` were ever colocated with the browser specs.
     include: ["**/*.test.ts"],
     exclude: [...configDefaults.exclude, "e2e/**", ".next/**"],
   },

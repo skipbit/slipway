@@ -7,12 +7,20 @@ const baseURL = "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./e2e",
+  // Only `*.spec.ts` are Playwright's — Vitest owns `*.test.ts`. Without this,
+  // Playwright's default testMatch (`**/*.spec.ts` AND `**/*.test.ts`) would
+  // also grab a Vitest file if one ever landed under e2e/.
+  testMatch: "**/*.spec.ts",
   fullyParallel: true,
   // Fail the CI run if a `.only` was committed by mistake.
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  // Generous assertion timeout: under `next dev` the first navigation to a
+  // route pays a Turbopack compile, which can exceed the 5s default on a cold
+  // CI runner. Prefer this over leaning on `retries` to mask the slow first hit.
+  expect: { timeout: 15_000 },
   use: {
     baseURL,
     trace: "on-first-retry",
