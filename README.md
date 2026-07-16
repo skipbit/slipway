@@ -25,7 +25,7 @@ get your product into the water fast.
 
 - **Next.js 16** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
-- **Prisma 6 + Postgres** — one-command local stack via Docker Compose; the same containerized app + Postgres in production
+- **Prisma 7 + Postgres** — Rust-free client via the pg driver adapter; one-command local stack via Docker Compose; the same containerized app + Postgres in production
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
 - **Tested** — Vitest unit tests over the `lib/` logic + a Playwright smoke suite for the public pages, both wired into CI
@@ -143,7 +143,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 
 - **Next.js 16** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
-- **Prisma 6 + Postgres** — Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres
+- **Prisma 7 + Postgres** — pg ドライバアダプタ経由の Rust-free クライアント。Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
 - **テスト付き** — `lib/` ロジックの Vitest 単体テスト + 公開ページの Playwright スモークテスト。どちらも CI に組み込み済み

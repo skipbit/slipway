@@ -53,10 +53,14 @@ public pages (needs `npx playwright install chromium` once).
   presence* check only (fast, edge-safe, no Prisma). The authoritative
   `auth()` check is in `app/dashboard/layout.tsx`. Keep both when adding
   protected areas; never rely on middleware alone.
-- **DB**: Prisma 6 + Postgres (provider `postgresql`), run via Docker Compose
-  in dev and prod. Dev workflow uses `db push` (no migration files yet); adopt
-  `prisma migrate` when you need a real migration history. `lib/prisma.ts`
-  memoizes the client across hot reloads.
+- **DB**: Prisma 7 + Postgres (provider `postgresql`), run via Docker Compose
+  in dev and prod. Prisma 7 is Rust-engine-free: the connection URL lives in
+  `prisma.config.ts` (not the schema `datasource`), the client is emitted by the
+  new `prisma-client` generator into `lib/generated/prisma` (gitignored), and
+  `lib/prisma.ts` connects through the **pg driver adapter** (`@prisma/adapter-pg`)
+  — `new PrismaClient({ adapter })`. It also memoizes the client across hot
+  reloads. Dev workflow uses `db push` (no migration files yet); adopt
+  `prisma migrate` when you need a real migration history.
 - **Branding** lives in `lib/site.ts` (`siteConfig`); never hardcode the
   product name in components.
 
@@ -83,7 +87,13 @@ public pages (needs `npx playwright install chromium` once).
 - Redirects are exceptions: `signIn`/`redirect` throw — never swallow them
   with a broad try/catch (see the rethrow pattern in `app/(auth)/actions.ts`).
 - Run `npx prisma generate` after editing `schema.prisma`, or the build
-  fails with stale client types.
+  fails with stale client types. The client generates into `lib/generated/prisma`
+  (gitignored) — CI and the Docker builds run `prisma generate` before
+  lint/typecheck/build, so a fresh checkout must too.
+- Prisma 7 dropped `url` from the schema `datasource`; the connection string is
+  in `prisma.config.ts` (`datasource.url = env("DATABASE_URL")`, with
+  `import "dotenv/config"` so host CLI runs pick up `.env`). Don't add `url` back
+  to `schema.prisma` — validation (`P1012`) will reject it.
 - `.env` is gitignored and must stay that way; `.env.example` documents every
   variable. Never commit real keys.
 

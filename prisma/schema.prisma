@@ -2,12 +2,15 @@
 // DATABASE_URL points at the compose `db` service; see .env.example.
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Connection URL lives in prisma.config.ts (Prisma 7 removed datasource `url`
+  // from the schema); the runtime client connects via the pg driver adapter in
+  // lib/prisma.ts.
 }
 
 model User {

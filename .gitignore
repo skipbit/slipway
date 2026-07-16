@@ -16,6 +16,9 @@
 /playwright-report
 /playwright/.cache
 
+# prisma — generated client (recreated by `prisma generate`)
+/lib/generated/
+
 # next.js
 /.next/
 /out/
