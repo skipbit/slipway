@@ -1,14 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # ── base ──────────────────────────────────────────────────────────────────────
-# Debian slim so the Prisma query engine (native binary) is identical across the
-# builder and runner stages — no binaryTargets juggling.
+# Debian slim Node base. Prisma 7 is Rust-engine-free (a pure-JS client plus the
+# pg driver adapter), so there is no native query engine and no system OpenSSL to
+# install — Node's own TLS handles any SSL connection to Postgres.
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
-# Prisma's query engine dynamically links OpenSSL at runtime.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl \
-  && rm -rf /var/lib/apt/lists/*
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # ── deps ──────────────────────────────────────────────────────────────────────
@@ -26,7 +23,8 @@ RUN npm ci
 FROM base AS dev
 ENV NODE_ENV=development
 # Own the dirs backing the anonymous volumes so the non-root user can write them
-# (prisma generate → node_modules/.prisma, next dev → .next).
+# (next dev → .next). Prisma 7 generates its client into the bind-mounted
+# lib/generated instead of node_modules/.prisma.
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 RUN mkdir -p /app/.next && chown node:node /app/.next
 USER node
@@ -57,9 +55,10 @@ ENV HOSTNAME=0.0.0.0
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
-# Insurance: Next's output tracing can miss Prisma's generated client + engine
-# binary (node_modules/.prisma). Copy it explicitly.
-COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
+# Prisma 7's client is pure JS and gets bundled into the standalone server output
+# by the Turbopack build (verified: no loose lib/generated is needed at runtime),
+# and the adapter's native `pg` dependency is traced into standalone automatically
+# — so there is no engine binary or generated-client copy to make here.
 
 USER node
 EXPOSE 3000
