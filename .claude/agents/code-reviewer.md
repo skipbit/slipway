@@ -17,9 +17,9 @@ Project-specific checks, in priority order:
 2. **Server/client boundaries**: no secrets or Prisma in `"use client"`
    files. `process.env` values reaching the client must be deliberately
    `NEXT_PUBLIC_`.
-3. **Route protection**: new protected areas must have both the middleware
-   cookie check (`middleware.ts` matcher) and an authoritative `auth()` check
-   in a server component. Never middleware alone.
+3. **Route protection**: new protected areas must have both the proxy
+   cookie check (`proxy.ts` matcher) and an authoritative `auth()` check
+   in a server component. Never the proxy alone.
 4. **Validation**: form/action input parsed with zod before use; no raw
    `formData.get()` values flowing into queries.
 5. **Next 16 pitfalls**: `await searchParams`/`params`; redirects thrown by

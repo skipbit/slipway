@@ -10,7 +10,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Authoritative auth check (middleware only does a cheap cookie check).
+  // Authoritative auth check (proxy only does a cheap cookie check).
   const session = await auth();
   if (!session?.user) redirect("/login");
 

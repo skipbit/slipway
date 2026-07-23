@@ -49,10 +49,11 @@ public pages (needs `npx playwright install chromium` once).
   for Google OAuth. Email/password lives in the Credentials provider with
   bcryptjs hashes on `User.passwordHash`. Google sign-in enables itself when
   `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set (see `isGoogleConfigured`).
-- **Route protection is two-layered**: `middleware.ts` does a *cookie
-  presence* check only (fast, edge-safe, no Prisma). The authoritative
-  `auth()` check is in `app/dashboard/layout.tsx`. Keep both when adding
-  protected areas; never rely on middleware alone.
+- **Route protection is two-layered**: `proxy.ts` (the Next.js `proxy`
+  convention, formerly `middleware.ts`) does a *cookie presence* check only
+  (fast, edge-safe, no Prisma). The authoritative `auth()` check is in
+  `app/dashboard/layout.tsx`. Keep both when adding protected areas; never
+  rely on the proxy alone.
 - **DB**: Prisma 7 + Postgres (provider `postgresql`), run via Docker Compose
   in dev and prod. Prisma 7 is Rust-engine-free: the connection URL lives in
   `prisma.config.ts` (not the schema `datasource`), the client is emitted by the

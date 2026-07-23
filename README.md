@@ -83,7 +83,7 @@ app/
 components/                landing, auth, dashboard, ui primitives
 lib/                       auth.ts, prisma.ts, site.ts, validations.ts, utils.ts
 prisma/schema.prisma       User / Account / Session / VerificationToken
-middleware.ts              cookie check for /dashboard (authoritative check in layout)
+proxy.ts                   cookie check for /dashboard (authoritative check in layout)
 .claude/                   CLAUDE.md companion: agents, commands, settings
 ```
 
@@ -202,7 +202,7 @@ app/
 components/                landing、auth、dashboard、ui プリミティブ
 lib/                       auth.ts、prisma.ts、site.ts、validations.ts、utils.ts
 prisma/schema.prisma       User / Account / Session / VerificationToken
-middleware.ts              /dashboard の Cookie チェック(正式な検証は layout 側)
+proxy.ts                   /dashboard の Cookie チェック(正式な検証は layout 側)
 .claude/                   CLAUDE.md と対になる agents、commands、settings
 ```
 
