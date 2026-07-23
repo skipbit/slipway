@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Lightweight route protection at the edge.
+ * Lightweight route protection at the edge (Next.js `proxy` convention).
  *
  * This only checks for the presence of the Auth.js session cookie (cheap, no
  * crypto, no DB). The authoritative check happens server-side in
@@ -13,7 +13,7 @@ const SESSION_COOKIES = [
   "__Secure-authjs.session-token",
 ];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const hasSession = SESSION_COOKIES.some((name) =>
     request.cookies.has(name),
   );
