@@ -16,6 +16,14 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      # next and eslint-config-next are released from the same repo on the same
+      # version line and are both pinned exactly, so a split bump leaves the two
+      # out of sync (#52 took next to 16.3.0 and left eslint-config-next on
+      # 16.2.12). Grouping keeps the lint config matched to the framework.
+      next:
+        patterns:
+          - "next"
+          - "eslint-config-next"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
