@@ -5,6 +5,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # react and react-dom must move in lockstep: react-dom@X declares a peer on
+    # react@^X, so a split bump leaves `npm ci` unresolvable (PR #50 failed this
+    # way while #47 held react back). Grouping them with their @types ships every
+    # React bump as one PR that CI can actually verify.
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
