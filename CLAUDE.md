@@ -18,7 +18,8 @@ docker compose down    # stop the stack (add -v to also wipe the db volume)
 npm run dev            # host-only dev server (Turbopack); needs a reachable Postgres
 npm run build          # production build (also the fastest full type-check)
 npm run lint           # eslint
-npx prisma db push     # sync schema to Postgres (dev workflow, no migration files)
+npx prisma migrate dev --name <change>   # create + apply a migration (dev)
+npx prisma migrate deploy                # apply pending migrations (compose start, prod)
 npx prisma generate    # regenerate client after schema changes
 npx prisma studio      # browse the database
 npx tsc --noEmit       # type-check without building
@@ -26,11 +27,14 @@ npm run test           # vitest unit tests (lib/) — fast, no browser or db
 npm run test:e2e       # playwright smoke e2e over the public pages
 ```
 
-Compose runs `prisma generate && prisma db push --accept-data-loss` on start, so
-schema edits apply on the next `docker compose up` (the flag keeps it
-non-interactive when a change would drop data — acceptable for dev). The app
-container runs as the non-root `node` user. Production-like build:
-`docker compose -f docker-compose.prod.yml up --build`.
+Compose runs `prisma generate && prisma migrate deploy` on start, so a fresh
+clone comes up with every committed migration already applied. Schema changes
+are made from inside the running container (the host needs no Node):
+`docker compose exec app npx prisma migrate dev --name add_projects`, then
+`docker compose exec app npx prisma generate`. `migrate dev` writes
+`prisma/migrations/<timestamp>_<name>/migration.sql` through the bind mount —
+commit it. The app container runs as the non-root `node` user.
+Production-like build: `docker compose -f docker-compose.prod.yml up --build`.
 
 Tests: **Vitest** for pure logic in `lib/` (`*.test.ts`, `node` env — mock
 `next/headers` and `@/lib/prisma`) and **Playwright** for a Postgres-free smoke
@@ -55,13 +59,16 @@ public pages (needs `npx playwright install chromium` once).
   `app/dashboard/layout.tsx`. Keep both when adding protected areas; never
   rely on the proxy alone.
 - **DB**: Prisma 7 + Postgres (provider `postgresql`), run via Docker Compose
-  in dev and prod. Prisma 7 is Rust-engine-free: the connection URL lives in
-  `prisma.config.ts` (not the schema `datasource`), the client is emitted by the
-  new `prisma-client` generator into `lib/generated/prisma` (gitignored), and
+  in dev and prod. Prisma 7's runtime client is Rust-engine-free (the CLI's
+  schema-engine is still a native binary, statically linked against OpenSSL):
+  the connection URL lives in `prisma.config.ts` (not the schema `datasource`),
+  the client is emitted by the new `prisma-client` generator into
+  `lib/generated/prisma` (gitignored), and
   `lib/prisma.ts` connects through the **pg driver adapter** (`@prisma/adapter-pg`)
   — `new PrismaClient({ adapter })`. It also memoizes the client across hot
-  reloads. Dev workflow uses `db push` (no migration files yet); adopt
-  `prisma migrate` when you need a real migration history.
+  reloads. Schema changes go through `prisma migrate`: the migration SQL is
+  committed under `prisma/migrations/`, and both compose stacks apply it with
+  `migrate deploy` on start. `db push` is not part of the workflow.
 - **Branding** lives in `lib/site.ts` (`siteConfig`); never hardcode the
   product name in components.
 
@@ -95,6 +102,14 @@ public pages (needs `npx playwright install chromium` once).
   in `prisma.config.ts` (`datasource.url = env("DATABASE_URL")`, with
   `import "dotenv/config"` so host CLI runs pick up `.env`). Don't add `url` back
   to `schema.prisma` — validation (`P1012`) will reject it.
+- `prisma migrate dev` does **not** regenerate the client in Prisma 7 despite
+  what its `--help` says — run `npx prisma generate` after it, or the build
+  fails on stale types.
+- Editing `schema.prisma` without creating a migration leaves the DB behind:
+  `migrate deploy` has nothing to apply and queries fail at runtime. CI's
+  `migrations` job catches this.
+- A database created by the old `db push` workflow has no migration history —
+  `migrate deploy` stops with `P3005`. Wipe it: `docker compose down -v`.
 - `.env` is gitignored and must stay that way; `.env.example` documents every
   variable. Never commit real keys.
 
@@ -109,7 +124,8 @@ public pages (needs `npx playwright install chromium` once).
 
 Done: landing (hero/features/FAQ), email+Google auth, dashboard
 (overview/settings), profile update, account deletion, auth rate limiting,
-Vitest unit tests + a Playwright smoke suite.
+Postgres migrations (prisma migrate), Vitest unit tests + a Playwright smoke
+suite.
 Not done yet (good first tasks): email verification + password reset (needs
-Resend or similar), real dashboard metrics, Postgres migrations, expanding e2e
-into a DB-backed signup → dashboard flow.
+Resend or similar), real dashboard metrics, expanding e2e into a DB-backed
+signup → dashboard flow.

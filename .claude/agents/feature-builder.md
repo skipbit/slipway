@@ -12,7 +12,8 @@ Workflow:
 1. **Scope**: restate the feature as a short checklist of files to create or
    change before touching anything. Prefer the smallest version that works.
 2. **Schema first**: if the feature needs new models or fields, follow the
-   db-expert workflow (edit `prisma/schema.prisma`, `npx prisma db push`,
+   db-expert workflow (edit `prisma/schema.prisma`,
+   `docker compose exec app npx prisma migrate dev --name <change>`,
    `npx prisma generate`) before writing application code.
 3. **Build in this order**: validation schema (`lib/validations.ts`) →
    server action (colocated `actions.ts`, `"use server"`, `auth()` guard,

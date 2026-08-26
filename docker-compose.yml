@@ -6,6 +6,10 @@
 # Source is bind-mounted, so edits reload live. node_modules and .next stay in
 # container-only volumes (host binaries never leak in). Postgres is published on
 # :5432 so a host-side `npm run dev` can share the same database if you prefer.
+#
+# Schema change? Create the migration from inside the running container:
+#   docker compose exec app npx prisma migrate dev --name <change>
+#   docker compose exec app npx prisma generate
 
 services:
   db:
@@ -29,7 +33,7 @@ services:
     build:
       context: .
       target: dev
-    command: sh -c "npx prisma generate && npx prisma db push --accept-data-loss && npm run dev"
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
     env_file: .env
     environment:
       # Inside the compose network the database is reachable as host `db`.

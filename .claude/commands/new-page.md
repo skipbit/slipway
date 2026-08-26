@@ -19,5 +19,5 @@ Follow the existing patterns exactly:
    using `useActionState`.
 3. Add the nav item to `components/dashboard/sidebar.tsx` with a lucide icon.
 4. If it needs new models, follow the db-expert agent workflow
-   (schema → `npx prisma db push` → `npx prisma generate`).
+   (schema → `npx prisma migrate dev --name <change>` → `npx prisma generate`).
 5. Verify with `npm run build`.

@@ -1,5 +1,5 @@
 ---
-description: Add a Prisma model and wire it through the stack (schema, db push, typed queries)
+description: Add a Prisma model and wire it through the stack (schema, migration, typed queries)
 argument-hint: e.g. "Project — name, description, belongs to User"
 ---
 
@@ -16,7 +16,10 @@ Use the db-expert agent workflow:
    - Postgres datasource: enums and `@db.` native types are available. The
      current schema still uses String + a TS union for portability; keep that
      unless you intentionally use a native type.
-2. Apply and regenerate: `npx prisma db push && npx prisma generate`.
+2. Create the migration and regenerate the client:
+   `docker compose exec app npx prisma migrate dev --name <change>`, then
+   `npx prisma generate` (`migrate dev` does not generate for you). Commit the
+   generated `prisma/migrations/**` SQL — it is a source file.
 3. If the model needs input validation (forms/actions), add a zod schema to
    `lib/validations.ts` now so later features reuse it.
 4. Verify with `npx tsc --noEmit`.

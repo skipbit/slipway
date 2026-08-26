@@ -7,7 +7,6 @@
       "Bash(npm install)",
       "Bash(npm ls:*)",
       "Bash(npx prisma generate)",
-      "Bash(npx prisma db push)",
       "Bash(npx prisma migrate:*)",
       "Bash(npx prisma studio:*)",
       "Bash(npx tsc:*)"

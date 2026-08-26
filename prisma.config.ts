@@ -1,5 +1,5 @@
 // Prisma 7 config. The datasource `url` moved out of prisma/schema.prisma into
-// this file; the Prisma CLI (generate, db push, studio) reads the connection
+// this file; the Prisma CLI (generate, migrate, studio) reads the connection
 // URL from here. The runtime client connects separately via the pg driver
 // adapter in lib/prisma.ts.
 //
