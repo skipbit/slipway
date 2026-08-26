@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # ── base ──────────────────────────────────────────────────────────────────────
-# Debian slim Node base. Prisma 7 is Rust-engine-free (a pure-JS client plus the
-# pg driver adapter), so there is no native query engine and no system OpenSSL to
-# install — Node's own TLS handles any SSL connection to Postgres.
+# Debian slim Node base. The Prisma 7 *runtime* client is Rust-engine-free (pure
+# JS plus the pg driver adapter), so there is no native query engine to ship. The
+# CLI's schema-engine, which `prisma migrate` shells out to, is still a native
+# binary — but it links OpenSSL statically, so there is no system OpenSSL to
+# install either, and Node's own TLS handles any SSL connection to Postgres.
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -19,7 +21,7 @@ RUN npm ci
 # node_modules and .next are anonymous volumes seeded from this image. Runs as
 # the non-root `node` user (uid 1000) so files it writes into the bind mount
 # (e.g. next-env.d.ts) are owned by the host user instead of root. Compose
-# overrides CMD to run `prisma generate && prisma db push && next dev`.
+# overrides CMD to run `prisma generate && prisma migrate deploy && next dev`.
 FROM base AS dev
 ENV NODE_ENV=development
 # Own the dirs backing the anonymous volumes so the non-root user can write them

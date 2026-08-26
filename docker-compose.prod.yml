@@ -4,8 +4,15 @@
 #
 #   docker compose -f docker-compose.prod.yml up --build   # http://localhost:3000
 #
-# `migrate` applies the schema once (from the builder stage, which has the Prisma
-# CLI) before the slim runner starts.
+# `migrate` applies pending migrations once (from the builder stage, which has the
+# Prisma CLI) before the slim runner starts.
+#
+# The explicit project name keeps this stack out of the dev stack's namespace.
+# Without it both files resolve to the same `slipway-app` image tag and the same
+# `slipway_pgdata` volume, so building here would replace the dev image (which
+# has the Prisma CLI the prod runner lacks) and `down -v` would drop the dev
+# database.
+name: slipway-prod
 
 services:
   db:
@@ -27,7 +34,7 @@ services:
     build:
       context: .
       target: builder
-    command: npx prisma db push --skip-generate --accept-data-loss
+    command: npx prisma migrate deploy
     env_file: .env
     environment:
       DATABASE_URL: postgresql://slipway:slipway@db:5432/slipway?schema=public

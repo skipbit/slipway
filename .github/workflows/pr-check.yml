@@ -4,6 +4,7 @@ name: CI
 # production build, plus a Playwright smoke run. A green pipeline is the safety
 # net that catches broken dependency updates — a react bump that leaves
 # react-dom behind, an eslint major that crashes lint — before they reach main.
+# A separate `migrations` job checks prisma/migrations against a real Postgres.
 on:
   pull_request:
   push:
@@ -66,3 +67,37 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # Migrations must apply cleanly to an empty database and leave it in exactly the
+  # shape prisma/schema.prisma describes. Catches a schema edit committed without
+  # its migration, and broken SQL, before either reaches main. Needs a real
+  # Postgres — unlike the jobs above, these commands actually connect.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: slipway
+          POSTGRES_PASSWORD: slipway
+          POSTGRES_DB: slipway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U slipway -d slipway"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: "postgresql://slipway:slipway@localhost:5432/slipway?schema=public"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      # Exit code 2 means the applied migrations and the schema have drifted apart.
+      - run: npx prisma migrate diff --from-config-datasource --to-schema=./prisma/schema.prisma --exit-code

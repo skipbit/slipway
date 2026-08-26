@@ -18,6 +18,9 @@ Rules:
 - If everything passes, reply with a short PASS summary (one line per step).
 - If `prisma/schema.prisma` changed since the last build, run
   `npx prisma generate` first to avoid stale client types.
+- If `prisma/schema.prisma` changed, check that a matching migration exists
+  under `prisma/migrations/`. A schema edit without one passes lint and build
+  but leaves the database behind — CI's `migrations` job will fail.
 - The Playwright smoke run (`npm run test:e2e`) is not part of this fast gate —
   it needs a browser (`npx playwright install chromium`) and boots the app. CI
   runs it in a separate job; run it locally when you touch the public pages.
