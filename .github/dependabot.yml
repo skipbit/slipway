@@ -24,6 +24,17 @@ updates:
         patterns:
           - "next"
           - "eslint-config-next"
+      # prisma (the CLI) and @prisma/client ship from one version line, and the
+      # client the CLI generates must match the runtime that loads it;
+      # @prisma/adapter-pg rides the same line. #71 arrived as a CLI-only bump
+      # that would have put a 7.10.0 generator and a 7.9.1 runtime on main, with
+      # no PR for the two runtime packages because open-pull-requests-limit was
+      # already saturated. Grouping ships the whole line as one PR.
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/client"
+          - "@prisma/adapter-pg"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
