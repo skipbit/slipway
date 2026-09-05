@@ -12,25 +12,22 @@ import {
 // because "the token we hand out is not the value we store" is exactly the
 // property worth testing.
 //
-// NOTE: expiry and the purpose match now live in SQL (`"purpose" = $2 AND
-// "expiresAt" > now()`), so a mocked $queryRaw cannot exercise them — same
-// limitation as the fixed-window reset in rate-limit.test.ts. What is covered
-// here is the hashing, the shape of the statements, and how their results are
-// read. The purpose isolation is verified against a real Postgres in the
-// browser run.
+// NOTE: expiry and the purpose match live in SQL (`"purpose" = $2 AND
+// "expiresAt" > now()`), so a mocked $queryRaw cannot exercise them — the same
+// limitation as the fixed-window reset in rate-limit.test.ts. What IS pinned
+// here is the wiring: that each flow pairs its purpose with the right URL, TTL
+// and message, which is the mistake that would otherwise compile — a
+// confirmation link redeemable as a password reset.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $queryRaw: vi.fn(),
     $transaction: vi.fn((fn: (tx: unknown) => unknown) =>
       fn({
-        $queryRaw: vi.fn(),
-        emailToken: {
-          create: vi.fn().mockResolvedValue({}),
-          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-        },
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        user: { update: vi.fn() },
       }),
     ),
-    emailToken: { deleteMany: vi.fn() },
+    emailToken: { upsert: vi.fn(), deleteMany: vi.fn() },
   },
 }));
 vi.mock("@/lib/email", () => ({
@@ -41,35 +38,45 @@ vi.mock("@/lib/email", () => ({
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
 import { prisma } from "@/lib/prisma";
 import {
-  EMAIL_TOKEN_TTL_SECONDS,
-  EmailTokenPurpose,
+  EMAIL_VERIFICATION_LINK,
+  PASSWORD_RESET_LINK,
   cleanupExpiredEmailTokens,
-  consumeEmailToken,
   generateEmailToken,
   hashEmailToken,
-  isEmailTokenValid,
-  issueEmailToken,
-  sendEmailVerificationLink,
-  sendPasswordResetLink,
 } from "@/lib/email-token";
 
 const queryRawMock = prisma.$queryRaw as unknown as Mock;
 const transactionMock = prisma.$transaction as unknown as Mock;
+const upsertMock = prisma.emailToken.upsert as unknown as Mock;
 const deleteManyMock = prisma.emailToken.deleteMany as unknown as Mock;
 const sendResetMock = sendPasswordResetEmail as unknown as Mock;
 const sendVerifyMock = sendVerificationEmail as unknown as Mock;
 
 const now = new Date("2026-07-14T00:00:00.000Z");
+const recipient = { id: "user_1", email: "ada@example.com" };
 
 /** The interpolated values of a tagged-template $queryRaw call. */
 function queryValues(call: unknown[]): unknown[] {
   return call.slice(1);
 }
 
+/** Runs the redeem transaction with a tx whose DELETE returns `rows`. */
+function txReturning(rows: { userId: string }[]) {
+  const update = vi.fn();
+  transactionMock.mockImplementationOnce((fn: (tx: unknown) => unknown) =>
+    fn({
+      $queryRaw: vi.fn().mockResolvedValue(rows),
+      user: { update },
+    }),
+  );
+  return update;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
   vi.setSystemTime(now);
+  upsertMock.mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -105,168 +112,110 @@ describe("hashEmailToken", () => {
   });
 });
 
-describe("EMAIL_TOKEN_TTL_SECONDS", () => {
-  it("keeps a reset link far shorter than a confirmation link", () => {
-    // A reset link is a live credential for an account someone is already
-    // struggling to get into; a confirmation link only asserts an address.
-    expect(EMAIL_TOKEN_TTL_SECONDS.PASSWORD_RESET).toBeLessThan(
-      EMAIL_TOKEN_TTL_SECONDS.EMAIL_VERIFICATION,
-    );
-  });
-});
+// One table serves both flows, so the pairing of purpose with URL, TTL and
+// wording is the whole safety story. These are the assertions that would fail
+// if someone wired a flow to the other purpose.
+describe.each([
+  {
+    name: "password reset",
+    link: PASSWORD_RESET_LINK,
+    purpose: "PASSWORD_RESET",
+    path: "/reset-password",
+    sender: () => sendResetMock,
+  },
+  {
+    name: "email verification",
+    link: EMAIL_VERIFICATION_LINK,
+    purpose: "EMAIL_VERIFICATION",
+    path: "/verify-email",
+    sender: () => sendVerifyMock,
+  },
+])("the $name link", ({ link, purpose, path, sender }) => {
+  it("stores its own purpose, and the hash rather than the token", async () => {
+    await link.issueAndSend(recipient);
 
-describe("issueEmailToken", () => {
-  it("stores the hash, never the token it returns", async () => {
-    let created: { data: { tokenHash: string } } | undefined;
-    transactionMock.mockImplementationOnce((fn: (tx: unknown) => unknown) =>
-      fn({
-        $queryRaw: vi.fn(),
-        emailToken: {
-          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-          create: vi.fn().mockImplementation((args) => {
-            created = args;
-            return Promise.resolve({});
-          }),
-        },
-      }),
-    );
+    const args = upsertMock.mock.calls[0]![0];
+    const url = sender().mock.calls[0]![1] as string;
+    const token = decodeURIComponent(url.split("token=")[1]!);
 
-    const token = await issueEmailToken(
-      "user_1",
-      EmailTokenPurpose.PASSWORD_RESET,
-    );
-
-    expect(created!.data.tokenHash).toBe(hashEmailToken(token));
-    expect(JSON.stringify(created!.data)).not.toContain(token);
+    expect(args.where.userId_purpose).toEqual({ userId: "user_1", purpose });
+    expect(args.create.purpose).toBe(purpose);
+    expect(args.create.tokenHash).toBe(hashEmailToken(token));
+    expect(JSON.stringify(args)).not.toContain(token);
   });
 
-  it("retires only the same purpose, and expires at that purpose's TTL", async () => {
-    const deleteMany = vi.fn().mockResolvedValue({ count: 0 });
-    let created: { data: { purpose: string; expiresAt: Date } } | undefined;
-    transactionMock.mockImplementationOnce((fn: (tx: unknown) => unknown) =>
-      fn({
-        $queryRaw: vi.fn(),
-        emailToken: {
-          deleteMany,
-          create: vi.fn().mockImplementation((args) => {
-            created = args;
-            return Promise.resolve({});
-          }),
-        },
-      }),
-    );
+  it("points at the page that redeems it, and quotes its own TTL", async () => {
+    await link.issueAndSend(recipient);
 
-    await issueEmailToken("user_1", EmailTokenPurpose.EMAIL_VERIFICATION);
-
-    // A new reset link must not silently cancel a pending confirmation.
-    expect(deleteMany).toHaveBeenCalledWith({
-      where: { userId: "user_1", purpose: "EMAIL_VERIFICATION" },
-    });
-    expect(created!.data.expiresAt).toEqual(
-      new Date(
-        now.getTime() + EMAIL_TOKEN_TTL_SECONDS.EMAIL_VERIFICATION * 1000,
-      ),
-    );
+    const [to, url, ttl] = sender().mock.calls[0]!;
+    expect(to).toBe("ada@example.com");
+    expect(url).toContain(`${path}?token=`);
+    expect(ttl).toBe(link.ttlSeconds);
   });
 
-  it("does it all in one transaction", async () => {
-    await issueEmailToken("user_1", EmailTokenPurpose.PASSWORD_RESET);
-    expect(transactionMock).toHaveBeenCalledOnce();
+  it("expires the row at its own TTL", async () => {
+    await link.issueAndSend(recipient);
+
+    const args = upsertMock.mock.calls[0]![0];
+    const expected = new Date(now.getTime() + link.ttlSeconds * 1000);
+    expect(args.create.expiresAt).toEqual(expected);
+    expect(args.update.expiresAt).toEqual(expected);
   });
-});
 
-describe("isEmailTokenValid", () => {
-  it("asks the database about the hash and the purpose, never the token", async () => {
-    queryRawMock.mockResolvedValue([{ valid: false }]);
+  it("replaces rather than accumulating — one live link per purpose", async () => {
+    await link.issueAndSend(recipient);
+    // The unique index makes this the database's rule; the upsert is how the
+    // application spends one round trip instead of a locked delete-then-insert.
+    expect(upsertMock).toHaveBeenCalledOnce();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
 
-    await isEmailTokenValid("plain-token", EmailTokenPurpose.PASSWORD_RESET);
+  it("asks about its own purpose when checking a token", async () => {
+    queryRawMock.mockResolvedValue([{ valid: true }]);
+
+    expect(await link.isValid("plain-token")).toBe(true);
 
     const values = queryValues(queryRawMock.mock.calls[0]!);
     expect(values).toContain(hashEmailToken("plain-token"));
-    expect(values).toContain("PASSWORD_RESET");
+    expect(values).toContain(purpose);
     expect(values).not.toContain("plain-token");
   });
 
-  it("accepts a token the database vouches for", async () => {
-    queryRawMock.mockResolvedValue([{ valid: true }]);
-    expect(
-      await isEmailTokenValid("t", EmailTokenPurpose.EMAIL_VERIFICATION),
-    ).toBe(true);
+  it("redeems its own purpose and applies the caller's data", async () => {
+    const update = txReturning([{ userId: "user_1" }]);
+
+    expect(await link.redeem("t", { emailVerified: now })).toBe("user_1");
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "user_1" },
+      data: { emailVerified: now },
+    });
   });
 
-  it("rejects rather than throwing if the query comes back empty", async () => {
-    queryRawMock.mockResolvedValue([]);
-    expect(await isEmailTokenValid("t", EmailTokenPurpose.PASSWORD_RESET)).toBe(
-      false,
-    );
-  });
-});
+  it("returns null and writes nothing when the token does not match", async () => {
+    // Unknown, expired, already spent, or minted for the other purpose — the
+    // caller must not be able to tell these apart, and none of them yield a user.
+    const update = txReturning([]);
 
-describe("consumeEmailToken", () => {
-  it("returns the owner the DELETE handed back", async () => {
-    queryRawMock.mockResolvedValue([{ userId: "user_1" }]);
-
-    expect(
-      await consumeEmailToken("t", EmailTokenPurpose.PASSWORD_RESET, prisma),
-    ).toBe("user_1");
-  });
-
-  it("scopes the DELETE to the purpose it was asked for", async () => {
-    // Without this, a confirmation link — which anyone gets by signing up —
-    // would be redeemable at /reset-password.
-    queryRawMock.mockResolvedValue([]);
-
-    await consumeEmailToken("t", EmailTokenPurpose.PASSWORD_RESET, prisma);
-
-    expect(queryValues(queryRawMock.mock.calls[0]!)).toContain(
-      "PASSWORD_RESET",
-    );
-  });
-
-  it("returns null when the statement matched nothing", async () => {
-    queryRawMock.mockResolvedValue([]);
-    expect(
-      await consumeEmailToken("t", EmailTokenPurpose.PASSWORD_RESET, prisma),
-    ).toBeNull();
-  });
-
-  it("runs on the transaction handle it is given", async () => {
-    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ userId: "user_1" }]) };
-
-    expect(
-      await consumeEmailToken("t", EmailTokenPurpose.EMAIL_VERIFICATION, tx),
-    ).toBe("user_1");
-    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(await link.redeem("t", { emailVerified: now })).toBeNull();
+    expect(update).not.toHaveBeenCalled();
   });
 });
 
-describe("the link senders", () => {
-  it("point a reset link at /reset-password with its own TTL", async () => {
-    await sendPasswordResetLink({ id: "user_1", email: "ada@example.com" });
-
-    const [to, url, ttl] = sendResetMock.mock.calls[0]!;
-    expect(to).toBe("ada@example.com");
-    expect(url).toContain("/reset-password?token=");
-    expect(ttl).toBe(EMAIL_TOKEN_TTL_SECONDS.PASSWORD_RESET);
+describe("the two flows together", () => {
+  it("keep a reset link far shorter than a confirmation link", () => {
+    // A reset link is a live credential for an account someone is already
+    // struggling to get into; a confirmation link only asserts an address.
+    expect(PASSWORD_RESET_LINK.ttlSeconds).toBeLessThan(
+      EMAIL_VERIFICATION_LINK.ttlSeconds,
+    );
   });
 
-  it("point a confirmation link at /verify-email with its own TTL", async () => {
-    await sendEmailVerificationLink({ id: "user_1", email: "ada@example.com" });
+  it("do not share a purpose", async () => {
+    await PASSWORD_RESET_LINK.issueAndSend(recipient);
+    await EMAIL_VERIFICATION_LINK.issueAndSend(recipient);
 
-    const [, url, ttl] = sendVerifyMock.mock.calls[0]!;
-    // The page that redeems it and the purpose it is minted under have to agree;
-    // they are two lines of the same function so that they cannot drift.
-    expect(url).toContain("/verify-email?token=");
-    expect(ttl).toBe(EMAIL_TOKEN_TTL_SECONDS.EMAIL_VERIFICATION);
-  });
-
-  it("send the plaintext token, which is never what was stored", async () => {
-    await sendEmailVerificationLink({ id: "user_1", email: "ada@example.com" });
-
-    const url = sendVerifyMock.mock.calls[0]![1] as string;
-    const token = decodeURIComponent(url.split("token=")[1]!);
-    expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(url).not.toContain(hashEmailToken(token));
+    const purposes = upsertMock.mock.calls.map((c) => c[0].create.purpose);
+    expect(new Set(purposes).size).toBe(2);
   });
 });
 

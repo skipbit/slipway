@@ -39,3 +39,34 @@ export function SuccessMessage({
     </p>
   );
 }
+
+/**
+ * The same two tones without the box, for the dashboard's denser forms.
+ *
+ * Added because the alternative was a third hand-rolled status paragraph, and
+ * the two that already existed had drifted into different reds and — worse —
+ * one of them announced errors with `role="status"`, which a screen reader
+ * treats as a polite update rather than something that needs attention.
+ */
+export function InlineMessage({
+  tone,
+  children,
+  className,
+}: {
+  tone: "error" | "success";
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      role={tone === "error" ? "alert" : "status"}
+      className={cn(
+        "text-sm",
+        tone === "error" ? "text-red-700" : "text-emerald-700",
+        className,
+      )}
+    >
+      {children}
+    </p>
+  );
+}

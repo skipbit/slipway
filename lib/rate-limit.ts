@@ -155,6 +155,29 @@ export async function rateLimit(
 }
 
 /**
+ * Count one hit against `key` and return the sentence to show the caller, or
+ * null to carry on.
+ *
+ * Lives here rather than at each entry point because the arithmetic and the
+ * wording had already been copied once and drifted — "attempts" in one place,
+ * "requests" in the other, with two copies of the same pluralisation. `noun` is
+ * the only part worth varying.
+ */
+export async function throttleMessage(
+  key: string,
+  { max, windowSeconds }: RateLimitConfig,
+  noun = "attempts",
+): Promise<string | null> {
+  const limit = await rateLimit(key, max, windowSeconds);
+  if (limit.success) return null;
+
+  const minutes = Math.max(1, Math.ceil(limit.retryAfterSeconds / 60));
+  return `Too many ${noun}. Try again in about ${minutes} minute${
+    minutes === 1 ? "" : "s"
+  }.`;
+}
+
+/**
  * Delete buckets whose window has elapsed. Rows are reset in place when the
  * same key returns, so distinct callers otherwise accumulate forever — wire
  * this into a periodic job (cron route / scheduled task) to reclaim them. The

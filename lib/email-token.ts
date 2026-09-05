@@ -1,13 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
-import { EmailTokenPurpose } from "@/lib/generated/prisma/client";
+import {
+  EmailTokenPurpose,
+  type Prisma,
+} from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { externalUrl } from "@/lib/site";
 
 // Single-use secrets sent by email — password reset links and email
 // verification links. One module because the two differ only in how long they
-// live and in what redeeming them does; everything below (the entropy, the
-// hashing, the atomic redeem) is the same problem twice.
+// live, where they point, and what redeeming them does; everything else (the
+// entropy, the hashing, the atomic redeem) is the same problem twice.
 //
 // The token that travels in the email is 256 bits of CSPRNG output; the
 // database only ever sees its SHA-256. That asymmetry is the point: a dump of
@@ -16,25 +19,11 @@ import { externalUrl } from "@/lib/site";
 // tool here precisely *because* the input is already high-entropy — the
 // slow-hash argument only applies to human-chosen secrets.
 //
-// EVERY statement matches on `purpose` as well as the hash. Sharing one table
-// is only safe because of that: without it a verification link — which a user
-// gets simply for signing up — would be redeemable at /reset-password.
-
-export { EmailTokenPurpose };
-
-/**
- * How long each kind of link stays valid.
- *
- * A reset link is short-lived because it is a live credential for an account
- * that someone is, by definition, having trouble getting into. A verification
- * link is not a way in — it only confirms an address — and people check
- * personal mail on their own schedule, so an hour would mostly generate
- * "expired" pages and resends.
- */
-export const EMAIL_TOKEN_TTL_SECONDS: Record<EmailTokenPurpose, number> = {
-  PASSWORD_RESET: 60 * 60,
-  EMAIL_VERIFICATION: 24 * 60 * 60,
-};
+// Nothing below is exported. Callers get the two flow objects at the bottom
+// instead, so a purpose is named once, next to the URL it belongs with, rather
+// than passed as an argument that a call site could get wrong — mixing them up
+// would let a confirmation link (which anyone gets by signing up) reset a
+// password, and that mistake would compile.
 
 /** Opaque, URL-safe token for the link. Never stored as-is. */
 export function generateEmailToken(): string {
@@ -47,47 +36,32 @@ export function hashEmailToken(token: string): string {
 }
 
 /**
- * Issue a fresh link and return the plaintext token to email.
+ * Issue a fresh token, replacing whatever the user had for this purpose.
  *
- * The user's previous token OF THE SAME PURPOSE is dropped first, so asking for
- * a second reset link silently retires the first — nobody has to work out which
- * of two live links to click — while a pending verification is left alone.
+ * One upsert, because `@@unique([userId, purpose])` makes "at most one live
+ * link per purpose" the database's rule. The delete-then-insert this replaces
+ * needed a transaction and a lock on the User row to be safe, and that lock was
+ * the thing that put issuing and redeeming in opposite lock orders — a deadlock
+ * between a resend in one tab and a submit in another. Issuing no longer touches
+ * User at all, so the cycle cannot form.
  */
-export async function issueEmailToken(
+async function issueToken(
   userId: string,
   purpose: EmailTokenPurpose,
+  ttlSeconds: number,
 ): Promise<string> {
   const token = generateEmailToken();
+  const tokenHash = hashEmailToken(token);
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
-  await prisma.$transaction(async (tx) => {
-    // Serialise concurrent requests for this user: under READ COMMITTED the
-    // deleteMany below cannot see a row another transaction has inserted but
-    // not yet committed, so without this lock two requests would both retire
-    // nothing and both insert, leaving two live links.
-    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
-    await tx.emailToken.deleteMany({ where: { userId, purpose } });
-    await tx.emailToken.create({
-      data: {
-        userId,
-        purpose,
-        tokenHash: hashEmailToken(token),
-        expiresAt: new Date(
-          Date.now() + EMAIL_TOKEN_TTL_SECONDS[purpose] * 1000,
-        ),
-      },
-    });
+  await prisma.emailToken.upsert({
+    where: { userId_purpose: { userId, purpose } },
+    create: { userId, purpose, tokenHash, expiresAt },
+    update: { tokenHash, expiresAt },
   });
 
   return token;
 }
-
-/**
- * Anything that can run a raw query — the client, or a transaction handle.
- * Required, not defaulted: redeeming outside the transaction that acts on the
- * result is exactly the failure this design exists to prevent, so the signature
- * should not offer it.
- */
-type RawClient = { $queryRaw: typeof prisma.$queryRaw };
 
 /**
  * Is this token currently good? Used to decide whether a page renders its form
@@ -97,7 +71,7 @@ type RawClient = { $queryRaw: typeof prisma.$queryRaw };
  * column is timestamptz precisely so the answer does not depend on whose clock
  * is asked, and on a multi-instance deploy that is not a hypothetical.
  */
-export async function isEmailTokenValid(
+async function tokenIsValid(
   token: string,
   purpose: EmailTokenPurpose,
 ): Promise<boolean> {
@@ -113,27 +87,37 @@ export async function isEmailTokenValid(
 }
 
 /**
- * Redeem a token exactly once and return the user it belongs to (null if it is
- * unknown, expired, already spent, or meant for something else).
+ * Redeem a token exactly once and apply `data` to its owner, or return null if
+ * the token is unknown, expired, already spent, or meant for something else.
  *
- * One statement does every job: the WHERE is the expiry and purpose check, the
- * DELETE is the single-use gate, and RETURNING hands back the owner. Two
- * concurrent submissions of the same link cannot both match — the loser deletes
- * nothing and gets an empty result — and there is no read-then-write window.
+ * The DELETE does every job at once: the WHERE is the expiry and purpose check,
+ * the delete itself is the single-use gate, and RETURNING hands back the owner.
+ * Two concurrent submissions of one link cannot both match — the loser deletes
+ * nothing — and there is no read-then-write window between them.
+ *
+ * Spending the token and writing the result share a transaction so that a
+ * failure on the write puts the link back, rather than leaving a user with an
+ * unchanged password and a link they have already used.
  */
-export async function consumeEmailToken(
+async function redeemToken(
   token: string,
   purpose: EmailTokenPurpose,
-  client: RawClient,
+  data: Prisma.UserUpdateInput,
 ): Promise<string | null> {
-  const rows = await client.$queryRaw<{ userId: string }[]>`
-    DELETE FROM "EmailToken"
-    WHERE "tokenHash" = ${hashEmailToken(token)}
-      AND "purpose" = ${purpose}::"EmailTokenPurpose"
-      AND "expiresAt" > now()
-    RETURNING "userId"
-  `;
-  return rows[0]?.userId ?? null;
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ userId: string }[]>`
+      DELETE FROM "EmailToken"
+      WHERE "tokenHash" = ${hashEmailToken(token)}
+        AND "purpose" = ${purpose}::"EmailTokenPurpose"
+        AND "expiresAt" > now()
+      RETURNING "userId"
+    `;
+    const userId = rows[0]?.userId;
+    if (!userId) return null;
+
+    await tx.user.update({ where: { id: userId }, data });
+    return userId;
+  });
 }
 
 /**
@@ -148,38 +132,64 @@ export async function cleanupExpiredEmailTokens(): Promise<number> {
     .then((r) => r.count);
 }
 
-/**
- * Issue a link and mail it.
- *
- * Both senders live here, next to the tokens they mint, so the URL a message
- * points at and the purpose the page will redeem it under cannot drift apart —
- * they are two lines of the same function. The caller keeps the policy (who
- * gets one) and the error handling.
- */
 type Recipient = { id: string; email: string };
 
-export async function sendPasswordResetLink(user: Recipient): Promise<void> {
-  const token = await issueEmailToken(
-    user.id,
-    EmailTokenPurpose.PASSWORD_RESET,
-  );
-  await sendPasswordResetEmail(
-    user.email,
-    externalUrl(`/reset-password?token=${encodeURIComponent(token)}`),
-    EMAIL_TOKEN_TTL_SECONDS.PASSWORD_RESET,
-  );
+/**
+ * One flow: a purpose, how long its links last, where they point, and how they
+ * are worded — bound together so no call site can pair them up wrongly.
+ */
+export type EmailLink = {
+  readonly ttlSeconds: number;
+  /** Issue a link for `user` and mail it. */
+  issueAndSend(user: Recipient): Promise<void>;
+  /** Read-only check, for a page deciding what to render. */
+  isValid(token: string): Promise<boolean>;
+  /** Spend the token and apply `data` to its owner. Returns the owner's id. */
+  redeem(token: string, data: Prisma.UserUpdateInput): Promise<string | null>;
+};
+
+function defineEmailLink(spec: {
+  purpose: EmailTokenPurpose;
+  ttlSeconds: number;
+  /** The page that redeems it. Same object as the purpose, so they agree. */
+  path: string;
+  send: (to: string, url: string, ttlSeconds: number) => Promise<void>;
+}): EmailLink {
+  const { purpose, ttlSeconds, path, send } = spec;
+  return {
+    ttlSeconds,
+    async issueAndSend(user) {
+      const token = await issueToken(user.id, purpose, ttlSeconds);
+      await send(
+        user.email,
+        externalUrl(`${path}?token=${encodeURIComponent(token)}`),
+        ttlSeconds,
+      );
+    },
+    isValid: (token) => tokenIsValid(token, purpose),
+    redeem: (token, data) => redeemToken(token, purpose, data),
+  };
 }
 
-export async function sendEmailVerificationLink(
-  user: Recipient,
-): Promise<void> {
-  const token = await issueEmailToken(
-    user.id,
-    EmailTokenPurpose.EMAIL_VERIFICATION,
-  );
-  await sendVerificationEmail(
-    user.email,
-    externalUrl(`/verify-email?token=${encodeURIComponent(token)}`),
-    EMAIL_TOKEN_TTL_SECONDS.EMAIL_VERIFICATION,
-  );
-}
+/**
+ * A reset link is short-lived because it is a live credential for an account
+ * someone is, by definition, having trouble getting into.
+ */
+export const PASSWORD_RESET_LINK = defineEmailLink({
+  purpose: EmailTokenPurpose.PASSWORD_RESET,
+  ttlSeconds: 60 * 60,
+  path: "/reset-password",
+  send: sendPasswordResetEmail,
+});
+
+/**
+ * A confirmation link is not a way in — it only asserts an address — and people
+ * check personal mail on their own schedule, so an hour would mostly generate
+ * "expired" pages and resends.
+ */
+export const EMAIL_VERIFICATION_LINK = defineEmailLink({
+  purpose: EmailTokenPurpose.EMAIL_VERIFICATION,
+  ttlSeconds: 24 * 60 * 60,
+  path: "/verify-email",
+  send: sendVerificationEmail,
+});

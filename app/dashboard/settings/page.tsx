@@ -2,7 +2,7 @@ import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import {
   DeleteAccountForm,
   ProfileForm,
@@ -56,15 +56,16 @@ export default async function SettingsPage() {
             <dt className="w-36 flex-none text-slate-500">Email</dt>
             <dd className="text-slate-900">
               {user.email}{" "}
-              {user.emailVerified ? (
-                <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                  Confirmed
-                </span>
-              ) : (
-                <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-                  Not confirmed
-                </span>
-              )}
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                  user.emailVerified
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-800",
+                )}
+              >
+                {user.emailVerified ? "Confirmed" : "Not confirmed"}
+              </span>
             </dd>
           </div>
           <div className="flex gap-4">

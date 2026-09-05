@@ -1,9 +1,5 @@
 import { type Metadata } from "next";
-import {
-  EMAIL_TOKEN_TTL_SECONDS,
-  EmailTokenPurpose,
-  isEmailTokenValid,
-} from "@/lib/email-token";
+import { EMAIL_VERIFICATION_LINK } from "@/lib/email-token";
 import { firstParam, humanDuration } from "@/lib/utils";
 import { LinkProblem } from "@/components/auth/link-problem";
 import { VerifyEmailForm } from "@/components/auth/verify-email-form";
@@ -41,12 +37,12 @@ export default async function VerifyEmailPage({
     );
   }
 
-  if (!(await isEmailTokenValid(token, EmailTokenPurpose.EMAIL_VERIFICATION))) {
+  if (!(await EMAIL_VERIFICATION_LINK.isValid(token))) {
     return (
       <LinkProblem
         title="This link has expired"
         body={`Confirmation links are good for ${humanDuration(
-          EMAIL_TOKEN_TTL_SECONDS.EMAIL_VERIFICATION,
+          EMAIL_VERIFICATION_LINK.ttlSeconds,
         )} and can only be used once. Log in and we'll send you a fresh one.`}
         actionHref="/login"
         actionLabel="Log in to get a new link"

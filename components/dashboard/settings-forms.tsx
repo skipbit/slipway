@@ -8,6 +8,7 @@ import {
 } from "@/app/dashboard/settings/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { InlineMessage } from "@/components/ui/message";
 
 export function ProfileForm({ defaultName }: { defaultName: string }) {
   const [state, formAction, pending] = useActionState<
@@ -29,15 +30,9 @@ export function ProfileForm({ defaultName }: { defaultName: string }) {
           />
         </div>
       </div>
-      {state.error && (
-        <p role="alert" className="text-sm text-red-600">
-          {state.error}
-        </p>
-      )}
+      {state.error && <InlineMessage tone="error">{state.error}</InlineMessage>}
       {state.success && (
-        <p role="status" className="text-sm text-emerald-600">
-          {state.success}
-        </p>
+        <InlineMessage tone="success">{state.success}</InlineMessage>
       )}
       <Button type="submit" loading={pending}>
         Save changes

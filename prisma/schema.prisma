@@ -78,11 +78,12 @@ enum EmailTokenPurpose {
 // Single-use secrets sent by email. Only the SHA-256 of the token is stored —
 // the plaintext exists solely in the message that carried it, so a dump of this
 // table yields nothing an attacker can present back to the app. Rows are
-// deleted the moment they are redeemed, and issuing a new one first drops the
-// user's previous token OF THE SAME PURPOSE — so a user has at most one live
-// link per purpose, and asking for a new reset link does not invalidate their
-// pending verification. Expired-but-unclicked rows are reclaimed by
-// cleanupExpiredEmailTokens() in lib/email-token.ts.
+// deleted the moment they are redeemed, and `@@unique([userId, purpose])` makes
+// "at most one live link per user per purpose" the database's rule rather than
+// something the application remembers — issuing is then a single upsert, and
+// asking for a new reset link still does not touch a pending verification.
+// Expired-but-unclicked rows are reclaimed by cleanupExpiredEmailTokens() in
+// lib/email-token.ts.
 model EmailToken {
   id        String            @id @default(cuid())
   userId    String
@@ -95,7 +96,7 @@ model EmailToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, purpose])
+  @@unique([userId, purpose])
   @@index([expiresAt])
 }
 

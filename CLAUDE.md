@@ -61,6 +61,11 @@ public pages (needs `npx playwright install chromium` once).
   completed password reset verifies too (clicking a link we mailed there is what
   verification asks for). Gate on `user.emailVerified` where your product needs
   it; nothing here does.
+- **Outbound email runs in `after()`**: signup and the reset request hand the
+  send to `after()` from `next/server` rather than awaiting it. Nobody is
+  waiting on the result — the failure path is a log line either way — and for
+  the reset request it is also what stops response time from telling a caller
+  whether an address exists.
 - **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot
@@ -68,10 +73,15 @@ public pages (needs `npx playwright install chromium` once).
   stays legal: that is the documented console-fallback mode.
 - **Mailed one-time links**: `lib/email-token.ts` covers both password reset
   and email verification — one `EmailToken` table with a `purpose` enum, because
-  the two differ only in TTL and in what redeeming them does. EVERY statement
-  matches on `purpose` as well as the hash; without that a confirmation link
-  (which anyone gets by signing up) would be redeemable at `/reset-password`.
-  It mints a 256-bit token, stores
+  the two differ only in TTL, where they point, and what redeeming them does.
+  Callers never touch a purpose: they use `PASSWORD_RESET_LINK` or
+  `EMAIL_VERIFICATION_LINK`, each of which binds its purpose to its URL, TTL and
+  message, and exposes `issueAndSend` / `isValid` / `redeem`. Passing a purpose
+  around as an argument is how a confirmation link — which anyone gets by
+  signing up — becomes redeemable at `/reset-password`, and that mistake would
+  compile. `@@unique([userId, purpose])` makes "one live link per purpose" the
+  database's rule, so issuing is a single upsert that never touches `User`;
+  redeeming is one transaction. It mints a 256-bit token, stores
   only its SHA-256, and redeems it exactly once (a single
   `DELETE ... WHERE "purpose" = $2 AND "expiresAt" > now() RETURNING "userId"`
   is the gate — one statement is the purpose check, the expiry check and the

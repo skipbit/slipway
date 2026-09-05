@@ -8,10 +8,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { ErrorMessage } from "@/components/ui/message";
 
+const initialState: AuthFormState = { error: null };
+
 export function VerifyEmailForm({ token }: { token: string }) {
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(
     verifyEmailAction,
-    { error: null },
+    initialState,
   );
 
   return (

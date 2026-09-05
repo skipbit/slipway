@@ -1,10 +1,10 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { sendEmailVerificationLink } from "@/lib/email-token";
+import { EMAIL_VERIFICATION_LINK } from "@/lib/email-token";
 import { isEmailConfigured } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
-import { rateLimit, type RateLimitConfig } from "@/lib/rate-limit";
+import { throttleMessage, type RateLimitConfig } from "@/lib/rate-limit";
 
 /** What a dashboard form action hands back to `useActionState`. */
 export type DashboardFormState = {
@@ -44,6 +44,8 @@ export async function resendVerificationAction(
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
+    // Only what the resend needs — no reason to pull a bcrypt hash into memory.
+    select: { id: true, email: true, emailVerified: true },
   });
   if (!user) return { error: "Sign in to request a new link.", success: null };
   if (user.emailVerified) {
@@ -52,23 +54,15 @@ export async function resendVerificationAction(
     return { error: null, success: "That address is already confirmed." };
   }
 
-  const limit = await rateLimit(
+  const blocked = await throttleMessage(
     `verify:user:${session.user.id}`,
-    RESEND_VERIFICATION_LIMIT.max,
-    RESEND_VERIFICATION_LIMIT.windowSeconds,
+    RESEND_VERIFICATION_LIMIT,
+    "requests",
   );
-  if (!limit.success) {
-    const minutes = Math.max(1, Math.ceil(limit.retryAfterSeconds / 60));
-    return {
-      error: `Too many requests. Try again in about ${minutes} minute${
-        minutes === 1 ? "" : "s"
-      }.`,
-      success: null,
-    };
-  }
+  if (blocked) return { error: blocked, success: null };
 
   try {
-    await sendEmailVerificationLink(user);
+    await EMAIL_VERIFICATION_LINK.issueAndSend(user);
   } catch (err) {
     // The caller is authenticated and this is their own address, so unlike the
     // password reset flow there is no enumeration risk in saying it failed.

@@ -1,9 +1,5 @@
 import { type Metadata } from "next";
-import {
-  EMAIL_TOKEN_TTL_SECONDS,
-  EmailTokenPurpose,
-  isEmailTokenValid,
-} from "@/lib/email-token";
+import { PASSWORD_RESET_LINK } from "@/lib/email-token";
 import { firstParam, humanDuration } from "@/lib/utils";
 import { LinkProblem } from "@/components/auth/link-problem";
 import { ResetPasswordForm } from "@/components/auth/password-reset-forms";
@@ -57,12 +53,12 @@ export default async function ResetPasswordPage({
     );
   }
 
-  if (!(await isEmailTokenValid(token, EmailTokenPurpose.PASSWORD_RESET))) {
+  if (!(await PASSWORD_RESET_LINK.isValid(token))) {
     return (
       <LinkProblem
         title="This link has expired"
         body={`Reset links are good for ${humanDuration(
-          EMAIL_TOKEN_TTL_SECONDS.PASSWORD_RESET,
+          PASSWORD_RESET_LINK.ttlSeconds,
         )} and can only be used once. Request a fresh one and we'll send it straight over.`}
         actionHref="/forgot-password"
         actionLabel="Request a new link"

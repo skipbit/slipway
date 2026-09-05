@@ -1,20 +1,19 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { AuthError } from "next-auth";
 import { auth, hashPassword, signIn, signOut } from "@/lib/auth";
 import { isEmailConfigured } from "@/lib/env";
 import {
-  EmailTokenPurpose,
-  consumeEmailToken,
-  sendEmailVerificationLink,
-  sendPasswordResetLink,
+  EMAIL_VERIFICATION_LINK,
+  PASSWORD_RESET_LINK,
 } from "@/lib/email-token";
 import { prisma } from "@/lib/prisma";
 import {
   getClientIp,
   opaqueKeyPart,
-  rateLimit,
+  throttleMessage,
   type RateLimitConfig,
 } from "@/lib/rate-limit";
 import {
@@ -98,26 +97,15 @@ const VERIFY_EMAIL_LIMIT: RateLimitConfig = {
 };
 
 /**
- * Count one hit against `key` and return the state to hand straight back when
- * the caller is over the limit, or null to carry on.
- *
- * Returning the state rather than a boolean keeps the "what do we tell them"
- * decision in one place across all four actions — the shape that used to be
- * six lines at every entry point, with the `if` easy to leave out.
+ * The throttle in the shape a form action returns. Returning the state rather
+ * than a boolean means forgetting the `if` is not an option.
  */
 async function throttle(
   key: string,
-  { max, windowSeconds }: RateLimitConfig,
+  config: RateLimitConfig,
 ): Promise<AuthFormState | null> {
-  const limit = await rateLimit(key, max, windowSeconds);
-  if (limit.success) return null;
-
-  const minutes = Math.max(1, Math.ceil(limit.retryAfterSeconds / 60));
-  return {
-    error: `Too many attempts. Try again in about ${minutes} minute${
-      minutes === 1 ? "" : "s"
-    }.`,
-  };
+  const error = await throttleMessage(key, config);
+  return error ? { error } : null;
 }
 
 /**
@@ -182,19 +170,12 @@ export async function signupAction(
   }
 
   const passwordHash = await hashPassword(parsed.data.password);
+
+  let user: { id: string; email: string };
   try {
-    const user = await prisma.user.create({
+    user = await prisma.user.create({
       data: { name: parsed.data.name, email, passwordHash },
     });
-
-    try {
-      await sendEmailVerificationLink(user);
-    } catch (sendErr) {
-      // Never fail the signup over this. The account exists, the user can sign
-      // in, and the dashboard offers a resend — turning "we couldn't send mail"
-      // into "your account wasn't created" would be the worse outcome by far.
-      console.error("[verify-email] failed to send on signup", sendErr);
-    }
   } catch (err) {
     // The findUnique above is a check, not a lock: two signups for the same
     // address can both pass it and race to the insert. The unique index is the
@@ -207,6 +188,19 @@ export async function signupAction(
     }
     throw err;
   }
+
+  // Off the response path. Nobody waits on the result — the failure branch was
+  // always just a log line — so making every signup wait on a round trip to
+  // Resend (up to the 10s timeout) bought nothing. Never fail the signup over
+  // it either: the account exists, the user can sign in, and the dashboard
+  // offers a resend.
+  after(async () => {
+    try {
+      await EMAIL_VERIFICATION_LINK.issueAndSend(user);
+    } catch (err) {
+      console.error("[verify-email] failed to send on signup", err);
+    }
+  });
 
   try {
     await signIn("credentials", {
@@ -232,10 +226,10 @@ const RESET_REQUESTED_MESSAGE =
 /**
  * Step 1 of the reset: email a single-use link.
  *
- * RESIDUAL LEAK: sending mail takes longer than not sending it, so response
- * time still correlates with account existence. Closing that properly means
- * handing the send to a queue and returning immediately — worth doing if you
- * are a target, overkill for most. The message itself gives nothing away.
+ * The send happens after the response, which is what keeps this from being a
+ * timing oracle: issuing a token and posting to Resend takes far longer than
+ * doing neither, so a caller could otherwise tell a real address from a
+ * fictional one with a stopwatch, whatever the message said.
  */
 export async function requestPasswordResetAction(
   _prev: PasswordResetFormState,
@@ -285,14 +279,17 @@ export async function requestPasswordResetAction(
   // want the other reading ("the verified email *is* the identity, so let them
   // set a password"), drop the passwordHash check and this becomes that.
   if (user?.passwordHash) {
-    try {
-      await sendPasswordResetLink(user);
-    } catch (err) {
-      // Swallowed on purpose: which addresses fail to send is itself a signal,
-      // and the user can simply request another link. The operator gets the
-      // real reason in the server log.
-      console.error("[password-reset] failed to send reset email", err);
-    }
+    const recipient = user;
+    after(async () => {
+      try {
+        await PASSWORD_RESET_LINK.issueAndSend(recipient);
+      } catch (err) {
+        // Swallowed on purpose: which addresses fail to send is itself a
+        // signal, and the user can simply request another link. The operator
+        // gets the real reason in the server log.
+        console.error("[password-reset] failed to send reset email", err);
+      }
+    });
   }
 
   return { error: null, success: RESET_REQUESTED_MESSAGE };
@@ -330,28 +327,13 @@ export async function resetPasswordAction(
   // deleted in the meantime, the pool exhausted, the process recycled — would
   // leave the user with an unchanged password AND a spent link, sent back to a
   // /forgot-password bucket they have already paid into.
-  const userId = await prisma.$transaction(async (tx) => {
-    const id = await consumeEmailToken(
-      parsed.data.token,
-      EmailTokenPurpose.PASSWORD_RESET,
-      tx,
-    );
-    if (!id) return null;
-    // Same lock, same order as issueEmailToken: that one takes the User row
-    // before touching EmailToken, and taking them the other way round here is
-    // an ABBA deadlock waiting for a "resend" in one tab and a submit in
-    // another. Postgres would abort one side with 40P01 — a 500 on a public
-    // form.
-    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${id} FOR UPDATE`;
-    // Redeeming this link proved control of the address it was sent to, which
-    // is the whole of what verification asks for — so an unverified account
-    // that recovers its password comes out verified rather than being asked to
-    // prove the same thing twice.
-    await tx.user.update({
-      where: { id },
-      data: { passwordHash, emailVerified: new Date() },
-    });
-    return id;
+  // Redeeming this link proved control of the address it was sent to, which is
+  // the whole of what verification asks for — so an unverified account that
+  // recovers its password comes out verified rather than being asked to prove
+  // the same thing twice.
+  const userId = await PASSWORD_RESET_LINK.redeem(parsed.data.token, {
+    passwordHash,
+    emailVerified: new Date(),
   });
 
   if (!userId) {
@@ -396,20 +378,8 @@ export async function verifyEmailAction(
   const blocked = await throttleByIp("verify", VERIFY_EMAIL_LIMIT);
   if (blocked) return blocked;
 
-  const userId = await prisma.$transaction(async (tx) => {
-    const id = await consumeEmailToken(
-      parsed.data.token,
-      EmailTokenPurpose.EMAIL_VERIFICATION,
-      tx,
-    );
-    if (!id) return null;
-    // See the note in resetPasswordAction: same lock order as issueEmailToken.
-    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${id} FOR UPDATE`;
-    await tx.user.update({
-      where: { id },
-      data: { emailVerified: new Date() },
-    });
-    return id;
+  const userId = await EMAIL_VERIFICATION_LINK.redeem(parsed.data.token, {
+    emailVerified: new Date(),
   });
 
   if (!userId) {
