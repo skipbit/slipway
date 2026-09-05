@@ -7,7 +7,7 @@ import {
   type DashboardFormState,
 } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
-import { InlineMessage } from "@/components/ui/message";
+import { FormMessages } from "@/components/ui/message";
 
 /**
  * Shown while an account's address is unconfirmed.
@@ -45,16 +45,7 @@ export function VerifyEmailNotice({ email }: { email: string }) {
         </form>
       </div>
 
-      {state.error && (
-        <InlineMessage tone="error" className="mt-3">
-          {state.error}
-        </InlineMessage>
-      )}
-      {state.success && (
-        <InlineMessage tone="success" className="mt-3">
-          {state.success}
-        </InlineMessage>
-      )}
+      <FormMessages state={state} className="mt-3" />
     </div>
   );
 }

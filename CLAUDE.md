@@ -69,12 +69,20 @@ public pages (needs `npx playwright install chromium` once).
 - **OAuth linking is session-only**: `allowDangerousEmailAccountLinking` is
   off, so Auth.js refuses a Google sign-in whose address already belongs to an
   account (`OAuthAccountNotLinked`, surfaced on `/login` via `pages.error`).
-  Providers are attached from Settings instead — `connectOAuthAccountAction`
-  starts an ordinary `signIn("google")` from a page that already required a
-  session, and Auth.js links onto the session's user without going near the
-  address-matching branch. `disconnectOAuthAccountAction` refuses to remove a
-  user's last sign-in method. Don't turn the flag back on to "fix" a linking
-  complaint; the provider comment in `lib/auth.ts` says what it costs.
+  Providers are attached from Settings instead — `connectGoogleAction` starts
+  an ordinary `signIn("google")` from a page that already required a session,
+  and Auth.js links onto the session's user without going near the
+  address-matching branch. The rules behind both sides live in
+  `lib/auth-policy.ts` (`canDisconnect` refuses to remove a user's last sign-in
+  method; the settings page uses it to disable the button rather than offer one
+  that only fails). Don't turn the flag back on to "fix" a linking complaint —
+  eslint refuses it repo-wide, and the provider comment in `lib/auth.ts` says
+  what it costs.
+- **`lib/auth.ts` and `lib/prisma.ts` are marked `server-only`**: importing
+  either from a `"use client"` file is a build error that names the boundary.
+  Without the marker the same mistake surfaced as
+  `Module not found: Can't resolve 'dns'` from inside `pg` — which is why
+  `components/auth/google-icon.tsx` exists apart from `google-button.tsx`.
 - **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot

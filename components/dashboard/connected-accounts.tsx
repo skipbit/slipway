@@ -2,41 +2,36 @@
 
 import { useActionState } from "react";
 import {
-  connectOAuthAccountAction,
+  connectGoogleAction,
   disconnectOAuthAccountAction,
   type DashboardFormState,
 } from "@/app/dashboard/actions";
 import { GoogleIcon } from "@/components/auth/google-icon";
 import { Button } from "@/components/ui/button";
-import { InlineMessage } from "@/components/ui/message";
+import { FormMessages } from "@/components/ui/message";
 
 const initialState: DashboardFormState = { error: null, success: null };
 
 /**
- * Connect or disconnect Google from inside an authenticated session.
+ * Connect or disconnect Google from inside an authenticated session — see
+ * `connectGoogleAction` for why that is the only place linking is safe.
  *
- * The connect button starts an ordinary Google sign-in. That is the point:
- * Auth.js links the provider straight onto the session's user when a session
- * exists, which is the only safe way to link — see the note on the provider in
- * lib/auth.ts for what the convenient way costs.
+ * Only rendered when Google is configured; the settings page owns that branch
+ * so an install without credentials doesn't hydrate a component to show one
+ * static line.
  */
 export function ConnectedAccounts({
   connected,
-  configured,
+  removable,
 }: {
   connected: boolean;
-  configured: boolean;
+  /** False when this is the account's only way back in. */
+  removable: boolean;
 }) {
-  const [connectState, connect, connecting] = useActionState<
-    DashboardFormState,
-    FormData
-  >(connectOAuthAccountAction, initialState);
-  const [disconnectState, disconnect, disconnecting] = useActionState<
+  const [state, disconnect, disconnecting] = useActionState<
     DashboardFormState,
     FormData
   >(disconnectOAuthAccountAction, initialState);
-
-  const state = connectState.error ? connectState : disconnectState;
 
   return (
     <div className="space-y-4">
@@ -44,14 +39,7 @@ export function ConnectedAccounts({
         <GoogleIcon />
         <span className="min-w-0 flex-1 text-sm text-slate-900">Google</span>
 
-        {!configured ? (
-          <span
-            className="text-sm text-slate-400"
-            title="Set AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET in .env to enable"
-          >
-            Not configured
-          </span>
-        ) : connected ? (
+        {connected ? (
           <form action={disconnect}>
             <input type="hidden" name="provider" value="google" />
             <Button
@@ -59,29 +47,28 @@ export function ConnectedAccounts({
               variant="secondary"
               size="sm"
               loading={disconnecting}
+              disabled={!removable}
+              title={
+                removable
+                  ? undefined
+                  : "This is your only way to sign in — set a password first."
+              }
             >
               Disconnect
             </Button>
           </form>
         ) : (
-          <form action={connect}>
-            <input type="hidden" name="provider" value="google" />
-            <Button
-              type="submit"
-              variant="secondary"
-              size="sm"
-              loading={connecting}
-            >
+          // A plain form: connectGoogleAction leaves for Google rather than
+          // returning, so there is no state to render and no spinner to show.
+          <form action={connectGoogleAction}>
+            <Button type="submit" variant="secondary" size="sm">
               Connect
             </Button>
           </form>
         )}
       </div>
 
-      {state.error && <InlineMessage tone="error">{state.error}</InlineMessage>}
-      {state.success && (
-        <InlineMessage tone="success">{state.success}</InlineMessage>
-      )}
+      <FormMessages state={state} />
     </div>
   );
 }

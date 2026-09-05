@@ -1,5 +1,6 @@
 import { googleSignInAction } from "@/app/(auth)/actions";
 import { isGoogleConfigured } from "@/lib/auth";
+import { GOOGLE_NOT_CONFIGURED } from "@/lib/site";
 import { GoogleIcon } from "@/components/auth/google-icon";
 
 /**
@@ -11,7 +12,7 @@ export function GoogleButton() {
     return (
       <div
         className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-slate-400 shadow-sm ring-1 ring-inset ring-slate-200"
-        title="Set AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET in .env to enable"
+        title={GOOGLE_NOT_CONFIGURED}
       >
         <GoogleIcon />
         Google (not configured)

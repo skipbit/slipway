@@ -91,10 +91,16 @@ test("login explains an OAuth error instead of showing a code", async ({
   ).toBeVisible();
   await expect(page.getByText("connect Google from Settings")).toBeVisible();
 
+  // The fallback is shared with the settings page, so it cannot say "signing
+  // you in" — that is wrong for someone who is already signed in and was
+  // connecting a provider.
   await page.goto("/login?error=SomethingNobodyHasHeardOf");
-  await expect(
-    page.getByText("Something went wrong signing you in"),
-  ).toBeVisible();
+  await expect(page.getByText("Something went wrong")).toBeVisible();
+
+  // An inherited property is not a message: `?error=constructor` used to hand
+  // React a function.
+  await page.goto("/login?error=constructor");
+  await expect(page.getByText("Something went wrong")).toBeVisible();
 });
 
 test("forgot-password page links back to login", async ({ page }) => {

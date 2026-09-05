@@ -2,6 +2,9 @@ import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth, isGoogleConfigured } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { connectErrorMessage } from "@/lib/auth-errors";
+import { GOOGLE_NOT_CONFIGURED } from "@/lib/site";
+import { canDisconnect } from "@/lib/auth-policy";
 import { cn, firstParam, formatDate } from "@/lib/utils";
 import {
   DeleteAccountForm,
@@ -9,17 +12,23 @@ import {
 } from "@/components/dashboard/settings-forms";
 import { ConnectedAccounts } from "@/components/dashboard/connected-accounts";
 import { VerifyEmailNotice } from "@/components/dashboard/verify-email-notice";
-import { SuccessMessage } from "@/components/ui/message";
+import { ErrorMessage, SuccessMessage } from "@/components/ui/message";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage({
   searchParams,
 }: {
-  // `?connected=google` is where connectOAuthAccountAction lands.
-  searchParams: Promise<{ connected?: string | string[] }>;
+  // `?connected=google` is where connectGoogleAction lands; `?error=` is an
+  // Auth.js failure forwarded from /login, which is where pages.error points.
+  searchParams: Promise<{
+    connected?: string | string[];
+    error?: string | string[];
+  }>;
 }) {
-  const connected = firstParam((await searchParams).connected);
+  const params = await searchParams;
+  const justConnected = firstParam(params.connected) === "google";
+  const connectError = firstParam(params.error);
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
@@ -57,8 +66,6 @@ export default async function SettingsPage({
           <ProfileForm defaultName={user.name ?? ""} />
         </div>
       </section>
-
-      {connected && <SuccessMessage>Google connected.</SuccessMessage>}
 
       {!user.emailVerified && <VerifyEmailNotice email={user.email} />}
 
@@ -101,11 +108,29 @@ export default async function SettingsPage({
         <p className="mt-1 text-sm text-slate-500">
           Sign in with a provider as well as, or instead of, your password.
         </p>
+        {justConnected && (
+          <SuccessMessage className="mt-4">Google connected.</SuccessMessage>
+        )}
+        {connectError && (
+          <ErrorMessage className="mt-4">
+            {connectErrorMessage(connectError)}
+          </ErrorMessage>
+        )}
+
         <div className="mt-6">
-          <ConnectedAccounts
-            connected={user.accounts.some((a) => a.provider === "google")}
-            configured={isGoogleConfigured()}
-          />
+          {isGoogleConfigured() ? (
+            <ConnectedAccounts
+              connected={user.accounts.some((a) => a.provider === "google")}
+              removable={canDisconnect(user, "google")}
+            />
+          ) : (
+            // Rendered here rather than inside the client component so an
+            // install without Google credentials — the boilerplate's default —
+            // doesn't hydrate one to show a single static line.
+            <p className="text-sm text-slate-400" title={GOOGLE_NOT_CONFIGURED}>
+              Google — not configured
+            </p>
+          )}
         </div>
       </section>
 

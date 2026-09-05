@@ -7,6 +7,7 @@ import { EMAIL_VERIFICATION_LINK } from "@/lib/email-token";
 import { emailDeliveryUnavailable } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { throttleMessage, type RateLimitConfig } from "@/lib/rate-limit";
+import { canDisconnect } from "@/lib/auth-policy";
 
 /** What a dashboard form action hands back to `useActionState`. */
 export type DashboardFormState = {
@@ -79,43 +80,29 @@ export async function resendVerificationAction(
 }
 
 /**
- * Connect an OAuth provider to the account you are already signed in as.
+ * Connect Google to the account you are already signed in as.
  *
- * This is the whole reason `allowDangerousEmailAccountLinking` is off. Auth.js
- * links an OAuth account straight onto the session's user when a session is
- * present, without going anywhere near the address-matching branch that makes
- * the flag dangerous — so the safe flow is simply to start the normal sign-in
- * from a page that already required a session.
+ * An ordinary sign-in, started from a page that already required a session —
+ * see the Google provider comment in lib/auth.ts for why that is the only safe
+ * way to link. A failure comes back as `?error=` on this page.
  *
- * If the Google account is already attached to somebody else, Auth.js refuses
- * with OAuthAccountNotLinked, which lands on /login with an explanation.
+ * No form state, because there is nothing to return: signIn throws to redirect.
  */
-export async function connectOAuthAccountAction(
-  _prev: DashboardFormState,
-  formData: FormData,
-): Promise<DashboardFormState> {
+export async function connectGoogleAction(): Promise<void> {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const provider = formData.get("provider");
-  if (provider !== "google") {
-    return { error: "Unknown provider.", success: null };
-  }
-
-  // signIn throws to redirect, like every other sign-in path here.
   await signIn("google", {
     redirectTo: "/dashboard/settings?connected=google",
   });
-  return { error: null, success: null };
 }
 
 /**
  * Detach a provider.
  *
- * Refuses to leave an account with no way back in. An OAuth-only user has no
- * password to fall back on and no way to set one (password reset only mails
- * accounts that already have a hash), so removing their last provider would be
- * a locked door with no key.
+ * The rule about not leaving an account without a way in is `canDisconnect`, so
+ * that this and the settings page — which uses it to stop offering a button
+ * that can only fail — cannot come to different conclusions.
  */
 export async function disconnectOAuthAccountAction(
   _prev: DashboardFormState,
@@ -135,8 +122,7 @@ export async function disconnectOAuthAccountAction(
   });
   if (!user) redirect("/login");
 
-  const othersRemain = user.accounts.some((a) => a.provider !== provider);
-  if (!user.passwordHash && !othersRemain) {
+  if (!canDisconnect(user, provider)) {
     return {
       error:
         "That is your only way to sign in — disconnecting it would lock you out.",

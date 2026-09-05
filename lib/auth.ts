@@ -1,8 +1,14 @@
+// See lib/prisma.ts: this marks the boundary so a client component that
+// imports from here fails with a message about the boundary rather than about
+// a transitive dependency's use of `dns`.
+import "server-only";
+
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
+import { providerVouchedForEmail } from "@/lib/auth-policy";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validations";
 
@@ -40,7 +46,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // already-authenticated session. Auth.js links accounts without going
       // near the address-matching branch when a session is present
       // (@auth/core handle-login.js), which is what
-      // app/dashboard/actions.ts#connectOAuthAccountAction uses.
+      // app/dashboard/actions.ts#connectGoogleAction uses.
+      //
+      // This paragraph is the argument; everywhere else points here rather than
+      // restating it, and eslint.config.mjs refuses the flag outright so a
+      // provider copied from the Auth.js docs cannot bring it back.
     }),
     Credentials({
       credentials: {
@@ -75,26 +85,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   events: {
     /**
      * Fires when an OAuth account is attached to a user — on first sign-in, and
-     * again if a Google login links to an EXISTING email/password account
-     * (allowDangerousEmailAccountLinking above). It is the documented seam for
-     * this: the provider's `profile()` return type has no room for
-     * `emailVerified`, and this event's `profile` is the mapped user, not the
-     * raw OIDC claims.
+     * when a provider is attached from Settings. It is the documented seam for
+     * marking the address verified: the provider's `profile()` return type has
+     * no room for `emailVerified`, and this event's `profile` is the mapped
+     * user, not the raw OIDC claims.
      *
-     * Google has already proved the address, so the account should not be asked
-     * to prove it again. This is only sound because linking is now restricted:
-     * with `allowDangerousEmailAccountLinking` off, the only ways to get here
-     * are creating a brand new user, or attaching a provider from inside an
-     * authenticated session — in both cases the person holds the account AND
-     * the provider vouches for the address. While the flag was on there was a
-     * third way, someone else's Google sign-in landing on a squatted password
-     * account, which is why this used to also require `passwordHash: null`.
+     * Those two are the only ways here, which is what makes trusting the
+     * provider sound — in both, the person holds the account AND the provider
+     * vouches for the address. See the note on the Google provider above for
+     * the third way that used to exist.
      *
      * `emailVerified: null` stays: an existing timestamp records when the
-     * address was FIRST proved and should not move.
-     *
-     * Whether the provider vouched for the address at all is checked in the
-     * `signIn` callback below, which is where the raw profile is available.
+     * address was FIRST proved and should not move. Whether the provider
+     * vouched at all is checked in the `signIn` callback below, which is where
+     * the raw profile lives.
      */
     async linkAccount({ user }) {
       // `User.id` is optional on Auth.js's type, and Prisma DROPS an undefined
@@ -111,20 +115,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   callbacks: {
-    /**
-     * An OAuth provider that says outright it has NOT verified the address is
-     * not an identity we can accept — it would let anyone claim any address by
-     * putting it in an unverified profile. Google normally sets this true;
-     * Workspace domains and any provider added later are why it is checked.
-     */
+    /** The rule, and its reasoning, live in lib/auth-policy.ts — with tests. */
     signIn({ account, profile }) {
-      // "oidc" and "oauth" both: Auth.js types Google and friends as oidc, but
-      // GitHub, Discord and every plain OAuth 2.0 provider as "oauth" — and the
-      // comment above promises this covers providers added later.
-      if (!account || (account.type !== "oidc" && account.type !== "oauth")) {
-        return true;
-      }
-      return profile?.email_verified !== false;
+      return providerVouchedForEmail(account, profile);
     },
     jwt({ token, user }) {
       if (user?.id) token.id = user.id;

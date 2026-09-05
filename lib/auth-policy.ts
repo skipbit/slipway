@@ -1,0 +1,58 @@
+/**
+ * The pure rules behind sign-in decisions, kept out of the places that act on
+ * them.
+ *
+ * A pure function in `lib/` rather than an `if` inside the disconnect action,
+ * because two places need the same answer and they must not disagree: the
+ * action has to refuse, and the settings page has to stop offering a button
+ * that can only ever fail. Here it is also testable without mocking four
+ * modules, which is how every other rule in `lib/` is written.
+ */
+export type SignInMethodSource = {
+  passwordHash: string | null;
+  accounts: { provider: string }[];
+};
+
+/** Every way this account can get back in — provider ids, plus "password". */
+export function signInMethods(user: SignInMethodSource): string[] {
+  return [
+    ...(user.passwordHash ? ["password"] : []),
+    ...user.accounts.map((account) => account.provider),
+  ];
+}
+
+/**
+ * Can `provider` be detached without locking the user out?
+ *
+ * An OAuth-only account has no password and no way to set one — password reset
+ * only mails accounts that already have a hash — so removing its last provider
+ * would be a locked door with no key.
+ */
+export function canDisconnect(
+  user: SignInMethodSource,
+  provider: string,
+): boolean {
+  return signInMethods(user).some((method) => method !== provider);
+}
+
+/**
+ * Did the provider actually vouch for the address it is handing us?
+ *
+ * A provider that says outright it has NOT verified the address cannot be used
+ * as an identity — it would let anyone claim any address by putting it in an
+ * unverified profile. Google normally sets this true; Workspace domains and
+ * providers added later are why it is checked.
+ *
+ * Both "oidc" and "oauth": Auth.js types Google as oidc, but GitHub, Discord
+ * and every plain OAuth 2.0 provider as "oauth". Anything else (credentials,
+ * email) makes no such claim and is not this rule's business.
+ */
+export function providerVouchedForEmail(
+  account: { type?: string } | null | undefined,
+  profile: { email_verified?: boolean | null } | null | undefined,
+): boolean {
+  if (!account || (account.type !== "oidc" && account.type !== "oauth")) {
+    return true;
+  }
+  return profile?.email_verified !== false;
+}

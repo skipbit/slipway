@@ -1,26 +1,13 @@
 import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { authErrorMessage } from "@/lib/auth-errors";
 import { firstParam } from "@/lib/utils";
 import { loginAction } from "@/app/(auth)/actions";
 import { CredentialsForm } from "@/components/auth/credentials-form";
 import { AuthDivider, GoogleButton } from "@/components/auth/google-button";
 import { AuthHeading } from "@/components/ui/auth-heading";
 import { ErrorMessage, SuccessMessage } from "@/components/ui/message";
-
-/**
- * Auth.js reports failures as a code in `?error=`. Only one of these is really
- * expected: a Google address that already belongs to an account, which happens
- * because linking is deliberately only allowed from a signed-in session — see
- * the provider note in lib/auth.ts.
- */
-const AUTH_ERRORS: Record<string, string> = {
-  OAuthAccountNotLinked:
-    "An account with that email address already exists. Log in below, then connect Google from Settings.",
-  AccessDenied:
-    "That provider did not confirm your email address, so we cannot use it to sign you in.",
-  Default: "Something went wrong signing you in. Please try again.",
-};
 import { TextLink } from "@/components/ui/text-link";
 
 export const metadata: Metadata = { title: "Log in" };
@@ -37,13 +24,24 @@ export default async function LoginPage({
     error?: string | string[];
   }>;
 }) {
-  const session = await auth();
-  if (session?.user) redirect("/dashboard");
-
   const params = await searchParams;
   const reset = firstParam(params.reset);
   const verified = firstParam(params.verified);
   const authError = firstParam(params.error);
+
+  const session = await auth();
+  if (session?.user) {
+    // An Auth.js failure reaching a signed-in visitor came from connecting a
+    // provider in Settings — `pages.error` is global and points here. Carry the
+    // code back to where they started; the plain redirect below would drop it,
+    // which is how the one failure this app actually produces ended up
+    // invisible to the only people who can produce it.
+    redirect(
+      authError
+        ? `/dashboard/settings?error=${encodeURIComponent(authError)}`
+        : "/dashboard",
+    );
+  }
 
   return (
     <div>
@@ -66,7 +64,7 @@ export default async function LoginPage({
 
       {authError && (
         <ErrorMessage className="mt-6">
-          {AUTH_ERRORS[authError] ?? AUTH_ERRORS.Default}
+          {authErrorMessage(authError)}
         </ErrorMessage>
       )}
 

@@ -77,3 +77,34 @@ export function InlineMessage({
     </p>
   );
 }
+
+/**
+ * The error-or-success pair every dashboard form renders.
+ *
+ * The third copy of these four lines is what prompted this: the first two had
+ * already drifted into different reds, and one announced errors politely. A
+ * component means the accessibility contract lives in one place.
+ */
+export function FormMessages({
+  state,
+  className,
+}: {
+  state: { error: string | null; success: string | null };
+  className?: string;
+}) {
+  if (state.error) {
+    return (
+      <InlineMessage tone="error" className={className}>
+        {state.error}
+      </InlineMessage>
+    );
+  }
+  if (state.success) {
+    return (
+      <InlineMessage tone="success" className={className}>
+        {state.success}
+      </InlineMessage>
+    );
+  }
+  return null;
+}
