@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { loginSchema, signupSchema, updateProfileSchema } from "@/lib/validations";
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  resetPasswordSchema,
+  signupSchema,
+  updateProfileSchema,
+} from "@/lib/validations";
 
 describe("loginSchema", () => {
   it("accepts a valid email and non-empty password", () => {
@@ -82,6 +88,154 @@ describe("signupSchema", () => {
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.message).toBe(
       "Name must be 100 characters or fewer.",
+    );
+  });
+});
+
+describe("email normalisation (shared by login, signup and reset)", () => {
+  // Normalising here rather than at each call site is what stops
+  // "Ada@example.com" becoming a second account, and what keeps one address
+  // from occupying two rate-limit buckets.
+  it("lower-cases and trims before anything else sees the address", () => {
+    const result = loginSchema.safeParse({
+      email: "  ADA@Example.COM  ",
+      password: "hunter2",
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.email).toBe("ada@example.com");
+  });
+
+  it("normalises on signup and on reset requests too", () => {
+    expect(
+      signupSchema.safeParse({
+        name: "Ada",
+        email: "ADA@EXAMPLE.COM",
+        password: "12345678",
+      }).data?.email,
+    ).toBe("ada@example.com");
+    expect(
+      forgotPasswordSchema.safeParse({ email: " Ada@Example.com " }).data
+        ?.email,
+    ).toBe("ada@example.com");
+  });
+
+  it("still rejects a malformed address after trimming", () => {
+    const result = forgotPasswordSchema.safeParse({ email: "  nope  " });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      "Enter a valid email address.",
+    );
+  });
+});
+
+describe("email length cap (shared by login, signup and reset)", () => {
+  // An uncapped address becomes an oversized Postgres index key — RateLimit's
+  // primary key and User.email's unique index both reject it from inside an
+  // unauthenticated form. 254 is the RFC 5321 maximum.
+  const overlong = `${"a".repeat(250)}@example.com`;
+
+  it("rejects an address longer than 254 characters", () => {
+    for (const [name, schema] of [
+      ["login", loginSchema],
+      ["forgotPassword", forgotPasswordSchema],
+    ] as const) {
+      const result = schema.safeParse({
+        email: overlong,
+        password: "12345678",
+      });
+      expect(result.success, name).toBe(false);
+      expect(result.error?.issues[0]?.message, name).toBe(
+        "Email must be 254 characters or fewer.",
+      );
+    }
+  });
+
+  it("rejects it on signup too", () => {
+    const result = signupSchema.safeParse({
+      name: "Ada",
+      email: overlong,
+      password: "12345678",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      "Email must be 254 characters or fewer.",
+    );
+  });
+
+  it("still accepts an address exactly at the limit", () => {
+    const atLimit = `${"a".repeat(254 - "@example.com".length)}@example.com`;
+    expect(atLimit).toHaveLength(254);
+    expect(forgotPasswordSchema.safeParse({ email: atLimit }).success).toBe(
+      true,
+    );
+  });
+});
+
+describe("forgotPasswordSchema", () => {
+  it("accepts a valid email", () => {
+    const result = forgotPasswordSchema.safeParse({ email: "ada@example.com" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a malformed email", () => {
+    const result = forgotPasswordSchema.safeParse({ email: "ada@" });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      "Enter a valid email address.",
+    );
+  });
+});
+
+describe("resetPasswordSchema", () => {
+  const valid = {
+    token: "a-token",
+    password: "12345678",
+    confirmPassword: "12345678",
+  };
+
+  it("accepts a token with two matching passwords", () => {
+    expect(resetPasswordSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("rejects mismatched confirmation, pointing at the field that is wrong", () => {
+    const result = resetPasswordSchema.safeParse({
+      ...valid,
+      confirmPassword: "12345679",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe("Passwords do not match.");
+    expect(result.error?.issues[0]?.path).toEqual(["confirmPassword"]);
+  });
+
+  it("rejects a missing token", () => {
+    const result = resetPasswordSchema.safeParse({ ...valid, token: "" });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe("This reset link is invalid.");
+  });
+
+  it("holds the new password to the same rules as signup", () => {
+    const result = resetPasswordSchema.safeParse({
+      ...valid,
+      password: "1234567",
+      confirmPassword: "1234567",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      "Password must be at least 8 characters.",
+    );
+  });
+
+  it("reports the length problem before the mismatch", () => {
+    // Field-level checks run before the object-level refine, so a short
+    // password never gets masked by a "passwords do not match" message.
+    const result = resetPasswordSchema.safeParse({
+      ...valid,
+      password: "short",
+      confirmPassword: "different",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      "Password must be at least 8 characters.",
     );
   });
 });

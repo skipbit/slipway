@@ -54,6 +54,12 @@ services:
       DATABASE_URL: postgresql://slipway:slipway@db:5432/slipway?schema=public
       # Fail fast with a clear message if AUTH_SECRET is unset/empty in .env.
       AUTH_SECRET: "${AUTH_SECRET:?AUTH_SECRET is required — set it in .env (openssl rand -base64 32)}"
+      # Runtime base URL for emailed links. The NEXT_PUBLIC_APP_URL build arg
+      # above is baked into the image; this one is not, so a deployed image can
+      # send reset links that point at the real host. Required rather than
+      # defaulted: a localhost default is exactly the silent failure this
+      # variable exists to prevent.
+      APP_URL: "${APP_URL:?APP_URL is required — the origin password reset emails link to}"
     ports:
       - "3000:3000"
     depends_on:

@@ -34,8 +34,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
-        const email = parsed.data.email.toLowerCase();
-        const user = await prisma.user.findUnique({ where: { email } });
+        // Already trimmed and lower-cased by loginSchema.
+        const user = await prisma.user.findUnique({
+          where: { email: parsed.data.email },
+        });
         if (!user?.passwordHash) return null;
 
         const valid = await bcrypt.compare(
@@ -66,6 +68,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+/**
+ * The bcrypt work factor, in one place.
+ *
+ * Signup and password reset both mint hashes; raising this in only one of them
+ * would leave account recovery quietly weaker than the front door, which is
+ * the path that matters most after a breach.
+ */
+const BCRYPT_COST = 10;
+
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_COST);
+}
 
 export function isGoogleConfigured(): boolean {
   return Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);

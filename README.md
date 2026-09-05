@@ -25,6 +25,7 @@ get your product into the water fast.
 
 - **Next.js 16** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
+- **Password reset** — single-use hashed tokens over email (Resend), rate limited and safe against account enumeration; with no mail credentials the link is logged to the console so the flow works on a fresh clone (refused under `NODE_ENV=production`, so a misconfigured deploy leaves a clear server-side error instead of scattering live tokens through a log)
 - **Prisma 7 + Postgres** — Rust-free client via the pg driver adapter; one-command local stack via Docker Compose; the same containerized app + Postgres in production; versioned migrations committed under `prisma/migrations/`
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
@@ -71,6 +72,18 @@ To enable Google sign-in later, create OAuth credentials in the
 (redirect URI: `http://localhost:3000/api/auth/callback/google`) and set
 `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`. The button enables itself.
 
+Password reset works out of the box with no email account: leave
+`RESEND_API_KEY` / `EMAIL_FROM` unset and the reset link is printed to the
+server log (`docker compose logs -f app`) instead of being sent. Set both to
+send real mail. Set **both** — a key without a sender switches the console
+fallback off and then fails at the provider, which the user never sees.
+
+Setting only one of the two is caught at startup — a production server refuses
+to boot. Setting neither is legal, but then `NODE_ENV=production` refuses the
+console fallback too: no live token reaches your logs, and the user still sees
+the neutral "a reset link is on its way", because which addresses fail to send
+is itself a signal. Watch your logs if you deploy that way.
+
 ## Working with Claude Code
 
 This is the part other boilerplates don't ship:
@@ -92,19 +105,34 @@ Open the repo with [Claude Code](https://claude.com/claude-code) and try:
 
 ```
 app/
-  (auth)/                  login & signup pages + server actions
+  (auth)/                  login / signup / password reset + server actions
   api/auth/[...nextauth]/  Auth.js route handler
   dashboard/               protected app shell: overview, settings
   page.tsx                 landing page (hero, features, FAQ)
 components/                landing, auth, dashboard, ui primitives
-lib/                       auth.ts, prisma.ts, site.ts, validations.ts, utils.ts
-prisma/schema.prisma       User / Account / Session / VerificationToken
+lib/                       auth.ts, prisma.ts, email.ts, password-reset.ts, env.ts, ...
+instrumentation.ts         startup check: production config that must not be wrong
+prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
 prisma/migrations/         versioned migration SQL, applied on every start
 proxy.ts                   cookie check for /dashboard (authoritative check in layout)
 .claude/                   CLAUDE.md companion: agents, commands, settings
 ```
 
 ## Going to production
+
+Put a reverse proxy in front that sets `x-real-ip` from the real socket
+address (nginx `proxy_set_header X-Real-IP $remote_addr;`, or a platform that
+does it for you). Without one, every visitor can look like the same client to
+`lib/rate-limit.ts` — publishing port 3000 straight out of Docker is enough to
+cause it — and the per-IP throttles on login, signup and password reset stop
+being per-IP. `FORGOT_PASSWORD_IP_LIMIT` is set high enough to survive that;
+`LOGIN_LIMIT` and `SIGNUP_LIMIT` are not.
+
+Set `APP_URL` to the real origin. `NEXT_PUBLIC_APP_URL` is inlined when the
+image is built, so a prebuilt image would otherwise mail password reset links
+pointing at `http://localhost:3000`. `instrumentation.ts` checks this at
+startup, so a production server without it refuses to boot rather than failing
+quietly.
 
 The stack is already Postgres. Two paths:
 
@@ -119,12 +147,14 @@ The stack is already Postgres. Two paths:
 - **Vercel** — works out of the box; set `DATABASE_URL` (managed Postgres) plus
   the env vars below.
 
-  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL,APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
 
 Then:
 
-1. Set `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `DATABASE_URL`, and (optionally) the
-   Google OAuth vars.
+1. Set `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `APP_URL`, `DATABASE_URL`, and
+   (optionally) the Google OAuth and Resend vars. `APP_URL` is not optional in
+   production — the server refuses to start without it, because it is the
+   origin password reset emails link to.
 2. Add your production domain to the Google OAuth client redirect URIs.
 3. Run `npx prisma migrate deploy` as part of your deploy step. The Docker
    path already does this in the `migrate` service; on Vercel, add it to the
@@ -132,8 +162,13 @@ Then:
 
 ## Known limitations (deliberate scope cuts)
 
-- No email verification or password reset flow (requires an email provider —
-  Resend/Postmark is the natural next step).
+- No email verification yet. Password reset is in (`lib/password-reset.ts`);
+  verification would reuse the same `lib/email.ts` seam.
+- Sessions are JWTs, so a password reset cannot revoke a session cookie stolen
+  beforehand — it stays valid until it expires. Closing that means a
+  `passwordChangedAt` check on every request, which costs the "no DB hit per
+  request" property JWTs were chosen for. `resetPasswordAction` spells out the
+  trade-off.
 - Tests cover `lib/` logic (Vitest) and a public-page smoke run (Playwright);
   there is no DB-backed signup → dashboard e2e flow yet.
 - Placeholder stats on the dashboard overview.
@@ -161,6 +196,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 
 - **Next.js 16** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
+- **パスワードリセット** — ハッシュ化した単回使用トークンをメールで送付(Resend)。レート制限付きで、アカウントの存在を漏らさない。メール未設定ならリンクをコンソールに出力するので clone 直後でも動く(`NODE_ENV=production` では出力を拒否するので、設定漏れがログに生トークンを撒かず、サーバー側に明確なエラーが残る)
 - **Prisma 7 + Postgres** — pg ドライバアダプタ経由の Rust-free クライアント。Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres。マイグレーション履歴は `prisma/migrations/` にコミット済み
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
@@ -207,6 +243,15 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 `http://localhost:3000/api/auth/callback/google`)、`AUTH_GOOGLE_ID` /
 `AUTH_GOOGLE_SECRET` を設定してください。ボタンは自動で有効になります。
 
+パスワードリセットはメールアカウント無しでもそのまま動きます。`RESEND_API_KEY` /
+`EMAIL_FROM` を未設定のままにすると、リセットリンクは送信されずサーバーログ
+(`docker compose logs -f app`)に出力されます。実際に送るなら両方を設定してください。
+設定するなら**両方**です。片方だけの状態は起動時に検出し、本番サーバーは起動を
+拒否します。両方未設定は許容しますが、その場合 `NODE_ENV=production` では
+コンソール出力も拒否します。生トークンはログに流れず、ユーザーには中立の
+「リセットリンクを送信しました」が表示されます(どのアドレスで送信に失敗したかが
+情報になるため、意図的に握り潰しています)。この構成で運用するならログを見てください。
+
 ## Claude Code との開発
 
 ここが他のボイラープレートにはない部分です:
@@ -229,19 +274,33 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 
 ```
 app/
-  (auth)/                  ログイン・サインアップページ + Server Actions
+  (auth)/                  ログイン / サインアップ / パスワードリセット + Server Actions
   api/auth/[...nextauth]/  Auth.js ルートハンドラ
   dashboard/               保護されたアプリシェル: 概要、設定
   page.tsx                 ランディングページ(ヒーロー、機能、FAQ)
 components/                landing、auth、dashboard、ui プリミティブ
-lib/                       auth.ts、prisma.ts、site.ts、validations.ts、utils.ts
-prisma/schema.prisma       User / Account / Session / VerificationToken
+lib/                       auth.ts、prisma.ts、email.ts、password-reset.ts、env.ts ほか
+instrumentation.ts         起動時チェック: 間違っていてはいけない本番設定
+prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
 prisma/migrations/         マイグレーション SQL — 起動時に自動適用
 proxy.ts                   /dashboard の Cookie チェック(正式な検証は layout 側)
 .claude/                   CLAUDE.md と対になる agents、commands、settings
 ```
 
 ## 本番運用へ
+
+実際の socket アドレスから `x-real-ip` を立てるリバースプロキシを前段に置いて
+ください(nginx なら `proxy_set_header X-Real-IP $remote_addr;`、あるいは
+それを行うプラットフォーム)。無い場合、`lib/rate-limit.ts` からは全訪問者が
+同一クライアントに見えることがあり(Docker の 3000 番をそのまま公開するだけで
+起こります)、ログイン・サインアップ・パスワードリセットの per-IP 制限が
+per-IP でなくなります。`FORGOT_PASSWORD_IP_LIMIT` はその状態でも耐える値に
+してありますが、`LOGIN_LIMIT` と `SIGNUP_LIMIT` はそうではありません。
+
+`APP_URL` に実際のオリジンを設定してください。`NEXT_PUBLIC_APP_URL` はビルド時に
+埋め込まれるため、ビルド済みイメージのままだとパスワードリセットのメールが
+`http://localhost:3000` を指すリンクを送ってしまいます。`instrumentation.ts` が
+起動時に検査し、未設定の本番サーバーは黙って動かず起動を拒否します。
 
 スタックは既に Postgres。経路は2つ：
 
@@ -257,20 +316,26 @@ proxy.ts                   /dashboard の Cookie チェック(正式な検証は
 - **Vercel** — そのまま動作。`DATABASE_URL`(マネージド Postgres)と下記の環境
   変数を設定するだけ。
 
-  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL,APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
 
 その上で：
 
-1. `AUTH_SECRET`、`NEXT_PUBLIC_APP_URL`、`DATABASE_URL`、(必要なら)Google OAuth
-   の環境変数を設定。
+1. `AUTH_SECRET`、`NEXT_PUBLIC_APP_URL`、`APP_URL`、`DATABASE_URL`、(必要なら)
+   Google OAuth と Resend の環境変数を設定。`APP_URL` は本番では必須で、
+   未設定だとサーバーは起動を拒否します(パスワードリセットのメールが指す
+   オリジンだからです)。
 2. Google OAuth クライアントのリダイレクト URI に本番ドメインを追加。
 3. デプロイ手順に `npx prisma migrate deploy` を組み込む。Docker 経路は
    `migrate` サービスが既に実行済み。Vercel の場合はビルドコマンドに追加。
 
 ## 既知の制限(意図的なスコープ)
 
-- メール認証・パスワードリセットなし(メールプロバイダが必要 — Resend /
-  Postmark の導入が自然な次の一歩)。
+- メール認証は未実装。パスワードリセットは実装済み(`lib/password-reset.ts`)で、
+  メール認証も同じ `lib/email.ts` の接合部を再利用できます。
+- セッションが JWT のため、リセット前に盗まれたセッション Cookie はリセットでは
+  失効せず、期限まで有効なままです。塞ぐには全リクエストで `passwordChangedAt` を
+  照合する必要があり、JWT を選んだ理由である「リクエスト毎の DB アクセスなし」を
+  失います。判断材料は `resetPasswordAction` のコメントに記載。
 - テストは `lib/` ロジック(Vitest)と公開ページのスモーク(Playwright)をカバー。
   DB を伴うサインアップ → ダッシュボードの e2e フローはまだ未整備。
 - ダッシュボード概要の統計はプレースホルダー。

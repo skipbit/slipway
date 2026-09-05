@@ -53,6 +53,23 @@ public pages (needs `npx playwright install chromium` once).
   for Google OAuth. Email/password lives in the Credentials provider with
   bcryptjs hashes on `User.passwordHash`. Google sign-in enables itself when
   `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set (see `isGoogleConfigured`).
+- **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
+  (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
+  — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot
+  instead of mailing links nobody can open. Email being unconfigured entirely
+  stays legal: that is the documented console-fallback mode.
+- **Password reset**: `lib/password-reset.ts` mints a 256-bit token, stores
+  only its SHA-256, and redeems it exactly once (a single
+  `DELETE ... WHERE "expiresAt" > now() RETURNING "userId"` is the gate — the
+  statement is the expiry check and the single-use lock at once). `lib/email.ts` sends it through Resend over plain `fetch` — and when
+  `RESEND_API_KEY`/`EMAIL_FROM` are unset it logs the link instead, so the flow
+  works on a fresh clone; that fallback throws under `NODE_ENV=production`
+  rather than scattering live tokens through a log. The throw is caught by
+  `requestPasswordResetAction` like any send failure, so it reaches the server
+  log, not the user — enumeration safety outranks feedback here. Both actions
+  live in `app/(auth)/actions.ts` and answer identically whether or not the
+  account exists. Email links go through `externalUrl()` — see the
+  build-time/runtime gotcha below.
 - **Route protection is two-layered**: `proxy.ts` (the Next.js `proxy`
   convention, formerly `middleware.ts`) does a *cookie presence* check only
   (fast, edge-safe, no Prisma). The authoritative `auth()` check is in
@@ -78,7 +95,11 @@ public pages (needs `npx playwright install chromium` once).
   (forms with `useActionState`, `usePathname` nav).
 - Mutations are Server Actions in a colocated `actions.ts` with `"use server"`
   at the top. Every action that touches user data must call `auth()` and
-  scope Prisma queries by `session.user.id`.
+  scope Prisma queries by `session.user.id`. The one deliberate exception is
+  account recovery: `resetPasswordAction` has no session by definition, so the
+  emailed token *is* the authorisation and the user id comes from redeeming it
+  — never from the form. Any new exception needs the same shape: a single-use
+  secret the server minted, and an id derived from it.
 - Validate all form input with zod schemas in `lib/validations.ts` before use.
 - UI: Tailwind v4 utility classes, slate/indigo palette, primitives in
   `components/ui/`. `cn()` from `lib/utils.ts` for conditional classes.
@@ -110,6 +131,20 @@ public pages (needs `npx playwright install chromium` once).
   `migrations` job catches this.
 - A database created by the old `db push` workflow has no migration history —
   `migrate deploy` stops with `P3005`. Wipe it: `docker compose down -v`.
+- Don't run `npm run build` inside the compose **dev** container: its image
+  sets `NODE_ENV=development` (Dockerfile `dev` stage), and `next build` under
+  that fails prerendering `/_global-error` with a bare
+  `TypeError: Cannot read properties of null (reading 'useContext')` that looks
+  like a code bug and isn't. Use
+  `docker compose run --rm -e NODE_ENV=production app npm run build`, or the
+  `builder` stage via `docker-compose.prod.yml`.
+- `NEXT_PUBLIC_*` is substituted at **build** time, so `siteConfig.url` is
+  frozen into the image. Anything that leaves the app (password reset emails)
+  must go through `externalUrl()` in `lib/site.ts`, which reads the
+  runtime-only `APP_URL`; there is deliberately no second helper reading the
+  build-time value, so don't add one back. `instrumentation.ts` refuses to
+  start a production server without it. The `||`-not-`??` detail and why are on
+  the function's docstring.
 - `.env` is gitignored and must stay that way; `.env.example` documents every
   variable. Never commit real keys.
 
@@ -124,8 +159,10 @@ public pages (needs `npx playwright install chromium` once).
 
 Done: landing (hero/features/FAQ), email+Google auth, dashboard
 (overview/settings), profile update, account deletion, auth rate limiting,
+password reset (hashed single-use tokens + Resend, with a console fallback),
 Postgres migrations (prisma migrate), Vitest unit tests + a Playwright smoke
 suite.
-Not done yet (good first tasks): email verification + password reset (needs
-Resend or similar), real dashboard metrics, expanding e2e into a DB-backed
-signup → dashboard flow.
+Not done yet (good first tasks): email verification (reuse `lib/email.ts` and
+the `VerificationToken` model, which the adapter still leaves unused), real
+dashboard metrics, expanding e2e into a DB-backed signup → dashboard flow —
+which is also what `/reset-password` needs before it can be covered there.
