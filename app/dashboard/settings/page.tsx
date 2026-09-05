@@ -1,17 +1,25 @@
 import { type Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { auth, isGoogleConfigured } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, firstParam, formatDate } from "@/lib/utils";
 import {
   DeleteAccountForm,
   ProfileForm,
 } from "@/components/dashboard/settings-forms";
+import { ConnectedAccounts } from "@/components/dashboard/connected-accounts";
 import { VerifyEmailNotice } from "@/components/dashboard/verify-email-notice";
+import { SuccessMessage } from "@/components/ui/message";
 
 export const metadata: Metadata = { title: "Settings" };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  // `?connected=google` is where connectOAuthAccountAction lands.
+  searchParams: Promise<{ connected?: string | string[] }>;
+}) {
+  const connected = firstParam((await searchParams).connected);
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
@@ -28,11 +36,6 @@ export default async function SettingsPage() {
     },
   });
   if (!user) redirect("/login");
-
-  const providers = [
-    ...(user.passwordHash ? ["password"] : []),
-    ...user.accounts.map((a) => a.provider),
-  ];
 
   return (
     <div className="space-y-8">
@@ -54,6 +57,8 @@ export default async function SettingsPage() {
           <ProfileForm defaultName={user.name ?? ""} />
         </div>
       </section>
+
+      {connected && <SuccessMessage>Google connected.</SuccessMessage>}
 
       {!user.emailVerified && <VerifyEmailNotice email={user.email} />}
 
@@ -77,14 +82,31 @@ export default async function SettingsPage() {
             </dd>
           </div>
           <div className="flex gap-4">
-            <dt className="w-36 flex-none text-slate-500">Sign-in methods</dt>
-            <dd className="text-slate-900">{providers.join(", ") || "none"}</dd>
+            <dt className="w-36 flex-none text-slate-500">Password</dt>
+            <dd className="text-slate-900">
+              {user.passwordHash ? "Set" : "Not set"}
+            </dd>
           </div>
           <div className="flex gap-4">
             <dt className="w-36 flex-none text-slate-500">Member since</dt>
             <dd className="text-slate-900">{formatDate(user.createdAt)}</dd>
           </div>
         </dl>
+      </section>
+
+      <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 className="text-base font-semibold text-slate-900">
+          Connected accounts
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Sign in with a provider as well as, or instead of, your password.
+        </p>
+        <div className="mt-6">
+          <ConnectedAccounts
+            connected={user.accounts.some((a) => a.provider === "google")}
+            configured={isGoogleConfigured()}
+          />
+        </div>
       </section>
 
       <section className="rounded-xl border border-red-200 bg-red-50/50 p-6">

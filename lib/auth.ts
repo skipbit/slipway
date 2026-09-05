@@ -18,13 +18,29 @@ import { loginSchema } from "@/lib/validations";
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
+  // Errors land on /login rather than Auth.js's own page, so the one that
+  // actually happens — OAuthAccountNotLinked, when a Google address matches an
+  // existing account — can be explained in the app's own words.
+  pages: { signIn: "/login", error: "/login" },
   trustHost: true,
   providers: [
     Google({
-      // A Google sign-in with the same email as an existing
-      // email/password account links to it instead of erroring.
-      allowDangerousEmailAccountLinking: true,
+      // `allowDangerousEmailAccountLinking` is deliberately NOT set.
+      //
+      // With it on, a Google sign-in whose address matches an existing account
+      // signs you into that account. Convenient, and an account takeover:
+      // anyone can create a password account under someone else's address
+      // (nothing gates signup on verification), and the real owner's first
+      // Google sign-in then drops them into the squatter's row — password and
+      // all. Email verification does not save it either, because the
+      // confirmation mail goes to the victim, who may well click it and verify
+      // the attacker's account for them.
+      //
+      // Linking is still supported, from the only place it is safe: an
+      // already-authenticated session. Auth.js links accounts without going
+      // near the address-matching branch when a session is present
+      // (@auth/core handle-login.js), which is what
+      // app/dashboard/actions.ts#connectOAuthAccountAction uses.
     }),
     Credentials({
       credentials: {
@@ -65,21 +81,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * `emailVerified`, and this event's `profile` is the mapped user, not the
      * raw OIDC claims.
      *
-     * Google has already proved the address, so a pure OAuth account should not
-     * be asked to prove it again. But the conditions matter, and the where
-     * clause carries them so they are checked atomically:
+     * Google has already proved the address, so the account should not be asked
+     * to prove it again. This is only sound because linking is now restricted:
+     * with `allowDangerousEmailAccountLinking` off, the only ways to get here
+     * are creating a brand new user, or attaching a provider from inside an
+     * authenticated session — in both cases the person holds the account AND
+     * the provider vouches for the address. While the flag was on there was a
+     * third way, someone else's Google sign-in landing on a squatted password
+     * account, which is why this used to also require `passwordHash: null`.
      *
-     * - `passwordHash: null` — the account has no local credential. Without
-     *   this, an attacker who signed up with password auth under someone else's
-     *   address gets their row stamped "Confirmed" the moment the real owner
-     *   signs in with Google, and every gate written against `emailVerified`
-     *   then trusts an account the attacker still knows the password to. Such a
-     *   user stays unverified and confirms by clicking the emailed link, which
-     *   is the thing that actually proves control.
-     * - `emailVerified: null` — don't move an existing timestamp.
+     * `emailVerified: null` stays: an existing timestamp records when the
+     * address was FIRST proved and should not move.
      *
-     * Whether Google vouched for the address at all is checked in the `signIn`
-     * callback below, which is where the raw profile is available.
+     * Whether the provider vouched for the address at all is checked in the
+     * `signIn` callback below, which is where the raw profile is available.
      */
     async linkAccount({ user }) {
       // `User.id` is optional on Auth.js's type, and Prisma DROPS an undefined
@@ -90,7 +105,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!user.id) return;
 
       await prisma.user.updateMany({
-        where: { id: user.id, emailVerified: null, passwordHash: null },
+        where: { id: user.id, emailVerified: null },
         data: { emailVerified: new Date() },
       });
     },

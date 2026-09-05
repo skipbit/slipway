@@ -66,6 +66,15 @@ public pages (needs `npx playwright install chromium` once).
   waiting on the result — the failure path is a log line either way — and for
   the reset request it is also what stops response time from telling a caller
   whether an address exists.
+- **OAuth linking is session-only**: `allowDangerousEmailAccountLinking` is
+  off, so Auth.js refuses a Google sign-in whose address already belongs to an
+  account (`OAuthAccountNotLinked`, surfaced on `/login` via `pages.error`).
+  Providers are attached from Settings instead — `connectOAuthAccountAction`
+  starts an ordinary `signIn("google")` from a page that already required a
+  session, and Auth.js links onto the session's user without going near the
+  address-matching branch. `disconnectOAuthAccountAction` refuses to remove a
+  user's last sign-in method. Don't turn the flag back on to "fix" a linking
+  complaint; the provider comment in `lib/auth.ts` says what it costs.
 - **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot

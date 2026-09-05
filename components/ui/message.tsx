@@ -6,11 +6,20 @@ import { cn } from "@/lib/utils";
 // two surfaces can't drift into different shades of red — which they had,
 // along with an error announced as `role="status"`.
 
-export function ErrorMessage({ children }: { children: React.ReactNode }) {
+export function ErrorMessage({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <p
       role="alert"
-      className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+      className={cn(
+        "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700",
+        className,
+      )}
     >
       {children}
     </p>

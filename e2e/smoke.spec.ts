@@ -78,6 +78,25 @@ test("password recovery is reachable from login and absent from signup", async (
   ).toHaveCount(0);
 });
 
+test("login explains an OAuth error instead of showing a code", async ({
+  page,
+}) => {
+  // Auth.js sends failures to /login (pages.error). The one that actually
+  // happens is a Google address that already belongs to an account, because
+  // linking is only allowed from a signed-in session.
+  // Matched on text, not role: Next's dev route announcer is also role=alert.
+  await page.goto("/login?error=OAuthAccountNotLinked");
+  await expect(
+    page.getByText("An account with that email address already exists"),
+  ).toBeVisible();
+  await expect(page.getByText("connect Google from Settings")).toBeVisible();
+
+  await page.goto("/login?error=SomethingNobodyHasHeardOf");
+  await expect(
+    page.getByText("Something went wrong signing you in"),
+  ).toBeVisible();
+});
+
 test("forgot-password page links back to login", async ({ page }) => {
   await page.goto("/forgot-password");
 
