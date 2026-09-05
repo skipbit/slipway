@@ -1,7 +1,6 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { after } from "next/server";
 import { AuthError } from "next-auth";
 import { auth, hashPassword, signIn, signOut } from "@/lib/auth";
 import { emailDeliveryUnavailable } from "@/lib/env";
@@ -119,7 +118,14 @@ async function throttleByIp(
 ): Promise<AuthFormState | null> {
   const ip = await getClientIp();
   if (!ip) return null;
-  return throttle(`${prefix}:${ip}`, config);
+  // `:ip:` is not decoration. The IP is a client-supplied header value on a
+  // directly-exposed origin, so it is attacker-chosen text being concatenated
+  // into a bucket key: with `verify:${ip}`, an `x-real-ip` of
+  // `user:<victimId>` lands in `verify:user:<victimId>`, the very bucket the
+  // dashboard's resend uses — five requests and the victim cannot ask for a
+  // confirmation link for an hour. Keeping every IP bucket under its own
+  // segment makes the whole class impossible rather than fixing one instance.
+  return throttle(`${prefix}:ip:${ip}`, config);
 }
 
 export async function loginAction(
@@ -189,18 +195,16 @@ export async function signupAction(
     throw err;
   }
 
-  // Off the response path. Nobody waits on the result — the failure branch was
-  // always just a log line — so making every signup wait on a round trip to
-  // Resend (up to the 10s timeout) bought nothing. Never fail the signup over
-  // it either: the account exists, the user can sign in, and the dashboard
-  // offers a resend.
-  after(async () => {
-    try {
-      await EMAIL_VERIFICATION_LINK.issueAndSend(user);
-    } catch (err) {
-      console.error("[verify-email] failed to send on signup", err);
-    }
-  });
+  // issueAndSend mails off the response path itself, and swallows a send
+  // failure — the account exists, the user can sign in, and the dashboard
+  // offers a resend, so a mail problem must not become "your account wasn't
+  // created". What is awaited here is the token write.
+  //
+  // Not guarded by emailDeliveryUnavailable() the way the other two send sites
+  // are: this one has no way to tell the user anything (it is followed by a
+  // redirect into the dashboard), and the notice there does not claim a
+  // message was sent. The resend button is where that state gets explained.
+  await EMAIL_VERIFICATION_LINK.issueAndSend(user);
 
   try {
     await signIn("credentials", {
@@ -226,10 +230,12 @@ const RESET_REQUESTED_MESSAGE =
 /**
  * Step 1 of the reset: email a single-use link.
  *
- * The send happens after the response, which is what keeps this from being a
- * timing oracle: issuing a token and posting to Resend takes far longer than
- * doing neither, so a caller could otherwise tell a real address from a
- * fictional one with a stopwatch, whatever the message said.
+ * RESIDUAL LEAK, now much smaller: the provider round trip happens after the
+ * response (see issueAndSend), so what still separates a real address from a
+ * fictional one is a single upsert — roughly a millisecond, against network
+ * jitter, rather than the hundreds a Resend POST took. Closing it completely
+ * means writing for addresses that do not exist, which is its own mess. The
+ * message itself gives nothing away.
  */
 export async function requestPasswordResetAction(
   _prev: PasswordResetFormState,
@@ -255,10 +261,7 @@ export async function requestPasswordResetAction(
     };
   }
 
-  const ipBlocked = await throttleByIp(
-    "forgot:ip",
-    FORGOT_PASSWORD_IP_LIMIT,
-  );
+  const ipBlocked = await throttleByIp("forgot", FORGOT_PASSWORD_IP_LIMIT);
   if (ipBlocked) return { ...ipBlocked, success: null };
 
   const email = parsed.data.email;
@@ -278,17 +281,7 @@ export async function requestPasswordResetAction(
   // want the other reading ("the verified email *is* the identity, so let them
   // set a password"), drop the passwordHash check and this becomes that.
   if (user?.passwordHash) {
-    const recipient = user;
-    after(async () => {
-      try {
-        await PASSWORD_RESET_LINK.issueAndSend(recipient);
-      } catch (err) {
-        // Swallowed on purpose: which addresses fail to send is itself a
-        // signal, and the user can simply request another link. The operator
-        // gets the real reason in the server log.
-        console.error("[password-reset] failed to send reset email", err);
-      }
-    });
+    await PASSWORD_RESET_LINK.issueAndSend(user);
   }
 
   return { error: null, success: RESET_REQUESTED_MESSAGE };
@@ -326,13 +319,8 @@ export async function resetPasswordAction(
   // deleted in the meantime, the pool exhausted, the process recycled — would
   // leave the user with an unchanged password AND a spent link, sent back to a
   // /forgot-password bucket they have already paid into.
-  // Redeeming this link proved control of the address it was sent to, which is
-  // the whole of what verification asks for — so an unverified account that
-  // recovers its password comes out verified rather than being asked to prove
-  // the same thing twice.
   const userId = await PASSWORD_RESET_LINK.redeem(parsed.data.token, {
     passwordHash,
-    emailVerified: new Date(),
   });
 
   if (!userId) {
@@ -370,9 +358,9 @@ export async function verifyEmailAction(
   const blocked = await throttleByIp("verify", VERIFY_EMAIL_LIMIT);
   if (blocked) return blocked;
 
-  const userId = await EMAIL_VERIFICATION_LINK.redeem(parsed.data.token, {
-    emailVerified: new Date(),
-  });
+  // redeem() confirms the address on its own — that is what redeeming a mailed
+  // link means — so there is nothing else for this action to write.
+  const userId = await EMAIL_VERIFICATION_LINK.redeem(parsed.data.token);
 
   if (!userId) {
     return {

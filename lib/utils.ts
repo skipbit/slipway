@@ -38,11 +38,14 @@ export function firstParam(
  * even when it isn't.
  */
 export function humanDuration(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
+  // Floor, not round: this tells someone how long they have, so being wrong
+  // should mean they act sooner, never later. Rounding turns a 90-minute link
+  // into "2 hours".
+  const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
-  const hours = Math.round(minutes / 60);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
-  const days = Math.round(hours / 24);
+  const days = Math.floor(hours / 24);
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 

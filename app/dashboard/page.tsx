@@ -34,6 +34,7 @@ export default async function DashboardPage({
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
+    select: { name: true, email: true, emailVerified: true },
   });
   if (!user) redirect("/login");
 

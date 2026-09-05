@@ -17,7 +17,15 @@ export default async function SettingsPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    include: { accounts: { select: { provider: true } } },
+    select: {
+      name: true,
+      email: true,
+      emailVerified: true,
+      createdAt: true,
+      // Read only to answer "is password one of your sign-in methods".
+      passwordHash: true,
+      accounts: { select: { provider: true } },
+    },
   });
   if (!user) redirect("/login");
 

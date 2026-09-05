@@ -24,12 +24,15 @@ vi.mock("@/lib/prisma", () => ({
     $transaction: vi.fn((fn: (tx: unknown) => unknown) =>
       fn({
         $queryRaw: vi.fn().mockResolvedValue([]),
-        user: { update: vi.fn() },
+        user: { update: vi.fn(), updateMany: vi.fn() },
       }),
     ),
     emailToken: { upsert: vi.fn(), deleteMany: vi.fn() },
   },
 }));
+// issueAndSend hands the provider call to after(); run it inline so the
+// assertions can see what was sent.
+vi.mock("next/server", () => ({ after: (fn: () => unknown) => fn() }));
 vi.mock("@/lib/email", () => ({
   sendPasswordResetEmail: vi.fn(),
   sendVerificationEmail: vi.fn(),
@@ -62,14 +65,13 @@ function queryValues(call: unknown[]): unknown[] {
 
 /** Runs the redeem transaction with a tx whose DELETE returns `rows`. */
 function txReturning(rows: { userId: string }[]) {
+  const queryRaw = vi.fn().mockResolvedValue(rows);
   const update = vi.fn();
+  const updateMany = vi.fn();
   transactionMock.mockImplementationOnce((fn: (tx: unknown) => unknown) =>
-    fn({
-      $queryRaw: vi.fn().mockResolvedValue(rows),
-      user: { update },
-    }),
+    fn({ $queryRaw: queryRaw, user: { update, updateMany } }),
   );
-  return update;
+  return { queryRaw, update, updateMany };
 }
 
 beforeEach(() => {
@@ -181,23 +183,62 @@ describe.each([
     expect(values).not.toContain("plain-token");
   });
 
-  it("redeems its own purpose and applies the caller's data", async () => {
-    const update = txReturning([{ userId: "user_1" }]);
+  it("scopes the redeem DELETE to its own purpose", async () => {
+    // THE assertion this whole design rests on. Drop the purpose clause from
+    // the DELETE and a confirmation link — which anyone gets by signing up —
+    // becomes redeemable at /reset-password. Nothing else in the suite would
+    // notice, because the mocked query returns whatever it is told to.
+    const { queryRaw } = txReturning([{ userId: "user_1" }]);
 
-    expect(await link.redeem("t", { emailVerified: now })).toBe("user_1");
+    await link.redeem("plain-token");
+
+    const values = queryValues(queryRaw.mock.calls[0]!);
+    expect(values).toContain(purpose);
+    expect(values).toContain(hashEmailToken("plain-token"));
+    expect(values).not.toContain("plain-token");
+  });
+
+  it("applies the caller's data and returns the owner", async () => {
+    const { update } = txReturning([{ userId: "user_1" }]);
+
+    expect(await link.redeem("t", { name: "Ada" })).toBe("user_1");
     expect(update).toHaveBeenCalledWith({
       where: { id: "user_1" },
-      data: { emailVerified: now },
+      data: { name: "Ada" },
+    });
+  });
+
+  it("confirms the address, promoting rather than overwriting", async () => {
+    // Redeeming any mailed link proves control of the address. An existing
+    // timestamp is when it was FIRST proved, so the `emailVerified: null`
+    // filter is what stops a password reset moving it years forward.
+    const { updateMany } = txReturning([{ userId: "user_1" }]);
+
+    await link.redeem("t");
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "user_1", emailVerified: null },
+      data: { emailVerified: expect.any(Date) },
     });
   });
 
   it("returns null and writes nothing when the token does not match", async () => {
     // Unknown, expired, already spent, or minted for the other purpose — the
     // caller must not be able to tell these apart, and none of them yield a user.
-    const update = txReturning([]);
+    const { update, updateMany } = txReturning([]);
 
-    expect(await link.redeem("t", { emailVerified: now })).toBeNull();
+    expect(await link.redeem("t", { name: "Ada" })).toBeNull();
     expect(update).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses an absurdly long token before hashing it", async () => {
+    // The POST paths cap this in zod; the GET on a link-landing page does not,
+    // so the bound lives here where both pass through.
+    expect(await link.isValid("a".repeat(5000))).toBe(false);
+    expect(await link.redeem("a".repeat(5000))).toBeNull();
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 });
 

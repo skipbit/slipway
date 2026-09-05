@@ -58,6 +58,12 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// Part of the Auth.js adapter contract, and unused here: it backs the Email
+// (magic link) provider, which this boilerplate does not enable. Email
+// verification deliberately does NOT use it — it needs a user relation (so
+// account deletion cascades), a hashed token, and a purpose, none of which this
+// shape has. Kept because PrismaAdapter expects the model to exist; delete it
+// only along with the adapter's Email support.
 model VerificationToken {
   identifier String
   token      String

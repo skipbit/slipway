@@ -31,8 +31,12 @@ export function VerifyEmailNotice({ email }: { email: string }) {
       <div className="flex flex-wrap items-center gap-3">
         <MailWarning className="h-5 w-5 flex-none text-amber-600" />
         <p className="min-w-0 flex-1 text-sm text-amber-900">
-          <span className="font-semibold">Confirm your email.</span> We sent a
-          link to <span className="break-all">{email}</span>.
+          <span className="font-semibold">Confirm your email.</span>{" "}
+          {/* Deliberately not "we sent a link": accounts that predate this
+              feature never got one, and neither does anyone on a deployment
+              with no mail credentials. Both see this notice. */}
+          <span className="break-all">{email}</span> hasn&apos;t been confirmed
+          yet.
         </p>
         <form action={formAction}>
           <Button type="submit" variant="secondary" size="sm" loading={pending}>

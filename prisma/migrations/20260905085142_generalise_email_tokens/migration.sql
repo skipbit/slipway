@@ -22,6 +22,23 @@ ALTER TABLE "EmailToken" RENAME CONSTRAINT "PasswordResetToken_userId_fkey" TO "
 ALTER INDEX "PasswordResetToken_tokenHash_key" RENAME TO "EmailToken_tokenHash_key";
 ALTER INDEX "PasswordResetToken_expiresAt_idx" RENAME TO "EmailToken_expiresAt_idx";
 
--- The lookup is now "this user's tokens for this purpose".
+-- "At most one live token per user per purpose" becomes the database's rule
+-- rather than something the application maintains with a locked
+-- delete-then-insert. Issuing is then a single upsert that never touches User,
+-- which is what stops issuing and redeeming from locking rows in opposite
+-- orders.
+--
+-- The rule was not previously enforced and the delete-then-insert it replaces
+-- could interleave under READ COMMITTED, so make room for the constraint before
+-- adding it. Normally deletes nothing; keeps the newest per (user, purpose).
+DELETE FROM "EmailToken" a
+USING "EmailToken" b
+WHERE a."userId" = b."userId"
+  AND a."purpose" = b."purpose"
+  AND (a."createdAt", a."id") < (b."createdAt", b."id");
+
+-- DropIndex
 DROP INDEX "PasswordResetToken_userId_idx";
-CREATE INDEX "EmailToken_userId_purpose_idx" ON "EmailToken"("userId", "purpose");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "EmailToken_userId_purpose_key" ON "EmailToken"("userId", "purpose");

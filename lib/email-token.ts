@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { after } from "next/server";
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
 import {
   EmailTokenPurpose,
@@ -19,11 +20,21 @@ import { externalUrl } from "@/lib/site";
 // tool here precisely *because* the input is already high-entropy — the
 // slow-hash argument only applies to human-chosen secrets.
 //
-// Nothing below is exported. Callers get the two flow objects at the bottom
-// instead, so a purpose is named once, next to the URL it belongs with, rather
-// than passed as an argument that a call site could get wrong — mixing them up
-// would let a confirmation link (which anyone gets by signing up) reset a
-// password, and that mistake would compile.
+// No purpose-taking function is exported. Callers get the two flow objects at
+// the bottom instead, so a purpose is named once, next to the URL it belongs
+// with, rather than passed as an argument that a call site could get wrong —
+// mixing them up would let a confirmation link (which anyone gets by signing
+// up) reset a password, and that mistake would compile.
+
+/**
+ * Longest string we will treat as a possible token.
+ *
+ * Ours are 43 characters of base64url. The bound lives here rather than only in
+ * the zod schemas because the schemas guard the POST paths, and the GET on a
+ * link-landing page hands a query parameter straight to `createHash` on an
+ * unauthenticated route — the cap belongs where both paths pass through.
+ */
+const MAX_TOKEN_LENGTH = 200;
 
 /** Opaque, URL-safe token for the link. Never stored as-is. */
 export function generateEmailToken(): string {
@@ -75,6 +86,8 @@ async function tokenIsValid(
   token: string,
   purpose: EmailTokenPurpose,
 ): Promise<boolean> {
+  if (token.length > MAX_TOKEN_LENGTH) return false;
+
   const rows = await prisma.$queryRaw<{ valid: boolean }[]>`
     SELECT EXISTS (
       SELECT 1 FROM "EmailToken"
@@ -98,12 +111,21 @@ async function tokenIsValid(
  * Spending the token and writing the result share a transaction so that a
  * failure on the write puts the link back, rather than leaving a user with an
  * unchanged password and a link they have already used.
+ *
+ * Redeeming ANY link proves control of the address it was sent to, so this also
+ * confirms the address — which is why the password reset flow does not have to
+ * ask for it separately. It promotes rather than overwrites: an existing
+ * timestamp records when the address was FIRST proved, and a product reading
+ * that column as "verified since" should not have it moved by an unrelated
+ * password reset years later.
  */
 async function redeemToken(
   token: string,
   purpose: EmailTokenPurpose,
-  data: Prisma.UserUpdateInput,
+  data?: Prisma.UserUpdateInput,
 ): Promise<string | null> {
+  if (token.length > MAX_TOKEN_LENGTH) return null;
+
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<{ userId: string }[]>`
       DELETE FROM "EmailToken"
@@ -115,7 +137,11 @@ async function redeemToken(
     const userId = rows[0]?.userId;
     if (!userId) return null;
 
-    await tx.user.update({ where: { id: userId }, data });
+    if (data) await tx.user.update({ where: { id: userId }, data });
+    await tx.user.updateMany({
+      where: { id: userId, emailVerified: null },
+      data: { emailVerified: new Date() },
+    });
     return userId;
   });
 }
@@ -144,8 +170,11 @@ type EmailLink = {
   issueAndSend(user: Recipient): Promise<void>;
   /** Read-only check, for a page deciding what to render. */
   isValid(token: string): Promise<boolean>;
-  /** Spend the token and apply `data` to its owner. Returns the owner's id. */
-  redeem(token: string, data: Prisma.UserUpdateInput): Promise<string | null>;
+  /**
+   * Spend the token, optionally applying `data` to its owner, and confirm the
+   * address either way. Returns the owner's id.
+   */
+  redeem(token: string, data?: Prisma.UserUpdateInput): Promise<string | null>;
 };
 
 function defineEmailLink(spec: {
@@ -159,12 +188,22 @@ function defineEmailLink(spec: {
   return {
     ttlSeconds,
     async issueAndSend(user) {
+      // Mint on the response path, mail off it. The write is one upsert and its
+      // ORDER matters — deferring it too would let a resend clicked seconds
+      // later be overwritten by this one, leaving the link the user just asked
+      // for dead and an older one live. The provider round trip is the slow
+      // part (150-500ms, up to the 10s timeout) and nothing waits on its
+      // result, so that is the half worth deferring.
       const token = await issueToken(user.id, purpose, ttlSeconds);
-      await send(
-        user.email,
-        externalUrl(`${path}?token=${encodeURIComponent(token)}`),
-        ttlSeconds,
-      );
+      const url = externalUrl(`${path}?token=${encodeURIComponent(token)}`);
+
+      after(async () => {
+        try {
+          await send(user.email, url, ttlSeconds);
+        } catch (err) {
+          console.error(`[email-token] failed to send ${path} link`, err);
+        }
+      });
     },
     isValid: (token) => tokenIsValid(token, purpose),
     redeem: (token, data) => redeemToken(token, purpose, data),

@@ -113,7 +113,7 @@ app/
 components/                landing, auth, dashboard, ui primitives
 lib/                       auth.ts, prisma.ts, email.ts, email-token.ts, env.ts, ...
 instrumentation.ts         startup check: production config that must not be wrong
-prisma/schema.prisma       User / Account / Session / EmailToken / RateLimit
+prisma/schema.prisma       User / Account / Session / VerificationToken / EmailToken / RateLimit
 prisma/migrations/         versioned migration SQL, applied on every start
 proxy.ts                   cookie check for /dashboard (authoritative check in layout)
 .claude/                   CLAUDE.md companion: agents, commands, settings
@@ -293,7 +293,7 @@ app/
 components/                landing、auth、dashboard、ui プリミティブ
 lib/                       auth.ts、prisma.ts、email.ts、email-token.ts、env.ts ほか
 instrumentation.ts         起動時チェック: 間違っていてはいけない本番設定
-prisma/schema.prisma       User / Account / Session / EmailToken / RateLimit
+prisma/schema.prisma       User / Account / Session / VerificationToken / EmailToken / RateLimit
 prisma/migrations/         マイグレーション SQL — 起動時に自動適用
 proxy.ts                   /dashboard の Cookie チェック(正式な検証は layout 側)
 .claude/                   CLAUDE.md と対になる agents、commands、settings

@@ -82,6 +82,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * callback below, which is where the raw profile is available.
      */
     async linkAccount({ user }) {
+      // `User.id` is optional on Auth.js's type, and Prisma DROPS an undefined
+      // filter field rather than matching nothing — so an id-less user here
+      // would turn this into "stamp emailVerified on every passwordless
+      // unverified account". Adapter users always carry one today; this is the
+      // guard for the day one does not.
+      if (!user.id) return;
+
       await prisma.user.updateMany({
         where: { id: user.id, emailVerified: null, passwordHash: null },
         data: { emailVerified: new Date() },
@@ -96,7 +103,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * Workspace domains and any provider added later are why it is checked.
      */
     signIn({ account, profile }) {
-      if (!account || account.type !== "oidc") return true;
+      // "oidc" and "oauth" both: Auth.js types Google and friends as oidc, but
+      // GitHub, Discord and every plain OAuth 2.0 provider as "oauth" — and the
+      // comment above promises this covers providers added later.
+      if (!account || (account.type !== "oidc" && account.type !== "oauth")) {
+        return true;
+      }
       return profile?.email_verified !== false;
     },
     jwt({ token, user }) {

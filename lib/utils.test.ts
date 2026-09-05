@@ -68,7 +68,12 @@ describe("humanDuration", () => {
   it("says an hour rather than sixty minutes", () => {
     expect(humanDuration(60 * 60)).toBe("1 hour");
     expect(humanDuration(2 * 60 * 60)).toBe("2 hours");
-    expect(humanDuration(90 * 60)).toBe("2 hours");
+  });
+
+  it("rounds down, so a link never sounds longer-lived than it is", () => {
+    expect(humanDuration(90 * 60)).toBe("1 hour");
+    expect(humanDuration(36 * 60 * 60)).toBe("1 day");
+    expect(humanDuration(119)).toBe("1 minute");
   });
 
   it("moves to days at a day, and singularises", () => {
