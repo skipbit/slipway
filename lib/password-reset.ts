@@ -55,8 +55,9 @@ export async function createPasswordResetToken(
 
 /**
  * Anything that can run a raw query — the client, or a transaction handle.
- * Lets the caller pull the redeem into the same transaction as the password
- * write, so a failure there puts the token back.
+ * Required, not defaulted: redeeming outside the transaction that writes the
+ * new password is exactly the failure this design exists to prevent, so the
+ * signature should not offer it.
  */
 type RawClient = { $queryRaw: typeof prisma.$queryRaw };
 
@@ -92,7 +93,7 @@ export async function isPasswordResetTokenValid(
  */
 export async function consumePasswordResetToken(
   token: string,
-  client: RawClient = prisma,
+  client: RawClient,
 ): Promise<string | null> {
   const rows = await client.$queryRaw<{ userId: string }[]>`
     DELETE FROM "PasswordResetToken"

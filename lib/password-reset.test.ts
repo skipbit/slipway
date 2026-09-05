@@ -165,7 +165,7 @@ describe("consumePasswordResetToken", () => {
   it("returns the owner the DELETE handed back", async () => {
     queryRawMock.mockResolvedValue([{ userId: "user_1" }]);
 
-    expect(await consumePasswordResetToken("t")).toBe("user_1");
+    expect(await consumePasswordResetToken("t", prisma)).toBe("user_1");
     expect(queryValues(queryRawMock.mock.calls[0]!)).toContain(
       hashResetToken("t"),
     );
@@ -175,7 +175,7 @@ describe("consumePasswordResetToken", () => {
     // Unknown, already spent, or past `now()` — the caller must not be able to
     // tell these apart, and none of them yield a user.
     queryRawMock.mockResolvedValue([]);
-    expect(await consumePasswordResetToken("t")).toBeNull();
+    expect(await consumePasswordResetToken("t", prisma)).toBeNull();
   });
 
   it("runs on the transaction handle it is given", async () => {

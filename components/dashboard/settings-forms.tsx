@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState } from "react";
-import { Loader2 } from "lucide-react";
 import {
   deleteAccountAction,
   updateProfileAction,
@@ -40,8 +39,7 @@ export function ProfileForm({ defaultName }: { defaultName: string }) {
           {state.success}
         </p>
       )}
-      <Button type="submit" disabled={pending}>
-        {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+      <Button type="submit" loading={pending}>
         Save changes
       </Button>
     </form>

@@ -11,7 +11,11 @@ import {
   createPasswordResetToken,
 } from "@/lib/password-reset";
 import { prisma } from "@/lib/prisma";
-import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import {
+  getClientIp,
+  rateLimit,
+  type RateLimitConfig,
+} from "@/lib/rate-limit";
 import { externalUrl } from "@/lib/site";
 import {
   forgotPasswordSchema,
@@ -22,11 +26,16 @@ import {
 
 export type AuthFormState = { error: string | null };
 
+/** Adds the "we sent it" line; only the request-a-link form has one. */
+export type PasswordResetFormState = AuthFormState & {
+  success: string | null;
+};
+
 // Per-IP throttles for credential auth. Tune to taste — shared NATs mean a
 // whole office counts as one caller, so keep these generous enough for humans
 // while still blunting brute force.
-const LOGIN_LIMIT = { max: 10, windowSeconds: 10 * 60 };
-const SIGNUP_LIMIT = { max: 5, windowSeconds: 60 * 60 };
+const LOGIN_LIMIT: RateLimitConfig = { max: 10, windowSeconds: 10 * 60 };
+const SIGNUP_LIMIT: RateLimitConfig = { max: 5, windowSeconds: 60 * 60 };
 // Reset requests get two buckets. The per-IP one blunts a script walking an
 // address list; the per-email one caps how much mail any single address can be
 // made to receive. Per-email buckets are created for addresses that may not
@@ -40,19 +49,41 @@ const SIGNUP_LIMIT = { max: 5, windowSeconds: 60 * 60 };
 // hour. There is no setting that removes the lockout entirely — telling a
 // throttled caller apart from an unthrottled one is the same oracle the neutral
 // response exists to close.
-const FORGOT_PASSWORD_IP_LIMIT = { max: 5, windowSeconds: 60 * 60 };
-const FORGOT_PASSWORD_EMAIL_LIMIT = { max: 10, windowSeconds: 60 * 60 };
-const RESET_PASSWORD_LIMIT = { max: 10, windowSeconds: 60 * 60 };
+const FORGOT_PASSWORD_IP_LIMIT: RateLimitConfig = {
+  max: 5,
+  windowSeconds: 60 * 60,
+};
+const FORGOT_PASSWORD_EMAIL_LIMIT: RateLimitConfig = {
+  max: 10,
+  windowSeconds: 60 * 60,
+};
+const RESET_PASSWORD_LIMIT: RateLimitConfig = {
+  max: 10,
+  windowSeconds: 60 * 60,
+};
 
-function tooManyAttemptsMessage(retryAfterSeconds: number): string {
-  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  return `Too many attempts. Try again in about ${minutes} minute${
-    minutes === 1 ? "" : "s"
-  }.`;
-}
+/**
+ * Count one hit against `key` and return the state to hand straight back when
+ * the caller is over the limit, or null to carry on.
+ *
+ * Returning the state rather than a boolean keeps the "what do we tell them"
+ * decision in one place across all four actions — the shape that used to be
+ * six lines at every entry point, with the `if` easy to leave out.
+ */
+async function throttle(
+  key: string,
+  { max, windowSeconds }: RateLimitConfig,
+): Promise<PasswordResetFormState | null> {
+  const limit = await rateLimit(key, max, windowSeconds);
+  if (limit.success) return null;
 
-function tooManyAttempts(retryAfterSeconds: number): AuthFormState {
-  return { error: tooManyAttemptsMessage(retryAfterSeconds) };
+  const minutes = Math.max(1, Math.ceil(limit.retryAfterSeconds / 60));
+  return {
+    error: `Too many attempts. Try again in about ${minutes} minute${
+      minutes === 1 ? "" : "s"
+    }.`,
+    success: null,
+  };
 }
 
 export async function loginAction(
@@ -65,12 +96,8 @@ export async function loginAction(
   }
 
   const ip = await getClientIp();
-  const limit = await rateLimit(
-    `login:${ip}`,
-    LOGIN_LIMIT.max,
-    LOGIN_LIMIT.windowSeconds,
-  );
-  if (!limit.success) return tooManyAttempts(limit.retryAfterSeconds);
+  const blocked = await throttle(`login:${ip}`, LOGIN_LIMIT);
+  if (blocked) return blocked;
 
   try {
     await signIn("credentials", {
@@ -98,14 +125,11 @@ export async function signupAction(
   }
 
   const ip = await getClientIp();
-  const limit = await rateLimit(
-    `signup:${ip}`,
-    SIGNUP_LIMIT.max,
-    SIGNUP_LIMIT.windowSeconds,
-  );
-  if (!limit.success) return tooManyAttempts(limit.retryAfterSeconds);
+  const blocked = await throttle(`signup:${ip}`, SIGNUP_LIMIT);
+  if (blocked) return blocked;
 
-  const email = parsed.data.email.toLowerCase();
+  // signupSchema already trimmed and lower-cased it.
+  const email = parsed.data.email;
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     return { error: "An account with this email already exists. Log in instead." };
@@ -131,22 +155,11 @@ export async function signupAction(
   }
 }
 
-export type PasswordResetFormState = {
-  error: string | null;
-  success: string | null;
-};
-
 // The same sentence whether or not the address is on file. Anything that varies
 // with account existence turns this form into a membership oracle, which is the
 // one thing a reset form must not be.
 const RESET_REQUESTED_MESSAGE =
   "If an account exists for that address, a reset link is on its way. Check your inbox.";
-
-function resetTooManyAttempts(
-  retryAfterSeconds: number,
-): PasswordResetFormState {
-  return { error: tooManyAttemptsMessage(retryAfterSeconds), success: null };
-}
 
 /**
  * Step 1 of the reset: email a single-use link.
@@ -169,24 +182,17 @@ export async function requestPasswordResetAction(
   }
 
   const ip = await getClientIp();
-  const ipLimit = await rateLimit(
-    `forgot:ip:${ip}`,
-    FORGOT_PASSWORD_IP_LIMIT.max,
-    FORGOT_PASSWORD_IP_LIMIT.windowSeconds,
-  );
-  if (!ipLimit.success) return resetTooManyAttempts(ipLimit.retryAfterSeconds);
+  const ipBlocked = await throttle(`forgot:ip:${ip}`, FORGOT_PASSWORD_IP_LIMIT);
+  if (ipBlocked) return ipBlocked;
 
-  const email = parsed.data.email.toLowerCase();
+  const email = parsed.data.email;
   // Keyed on what was typed, not on what exists, so being throttled here says
   // nothing about whether the account is real.
-  const emailLimit = await rateLimit(
+  const emailBlocked = await throttle(
     `forgot:email:${email}`,
-    FORGOT_PASSWORD_EMAIL_LIMIT.max,
-    FORGOT_PASSWORD_EMAIL_LIMIT.windowSeconds,
+    FORGOT_PASSWORD_EMAIL_LIMIT,
   );
-  if (!emailLimit.success) {
-    return resetTooManyAttempts(emailLimit.retryAfterSeconds);
-  }
+  if (emailBlocked) return emailBlocked;
 
   const user = await prisma.user.findUnique({ where: { email } });
 
@@ -225,24 +231,17 @@ export async function requestPasswordResetAction(
  * choice here. Decide that consciously rather than by default.
  */
 export async function resetPasswordAction(
-  _prev: PasswordResetFormState,
+  _prev: AuthFormState,
   formData: FormData,
-): Promise<PasswordResetFormState> {
+): Promise<AuthFormState> {
   const parsed = resetPasswordSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    return {
-      error: parsed.error.issues[0]?.message ?? "Invalid input.",
-      success: null,
-    };
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
   const ip = await getClientIp();
-  const limit = await rateLimit(
-    `reset:${ip}`,
-    RESET_PASSWORD_LIMIT.max,
-    RESET_PASSWORD_LIMIT.windowSeconds,
-  );
-  if (!limit.success) return resetTooManyAttempts(limit.retryAfterSeconds);
+  const blocked = await throttle(`reset:${ip}`, RESET_PASSWORD_LIMIT);
+  if (blocked) return blocked;
 
   // Hash before the transaction opens: bcrypt costs ~100ms and holding a
   // pooled connection through it is exactly how a pool runs dry. Doing it even
@@ -264,7 +263,6 @@ export async function resetPasswordAction(
   if (!userId) {
     return {
       error: "This reset link is invalid or has expired. Request a new one.",
-      success: null,
     };
   }
 

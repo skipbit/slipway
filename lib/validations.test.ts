@@ -92,6 +92,42 @@ describe("signupSchema", () => {
   });
 });
 
+describe("email normalisation (shared by login, signup and reset)", () => {
+  // Normalising here rather than at each call site is what stops
+  // "Ada@example.com" becoming a second account, and what keeps one address
+  // from occupying two rate-limit buckets.
+  it("lower-cases and trims before anything else sees the address", () => {
+    const result = loginSchema.safeParse({
+      email: "  ADA@Example.COM  ",
+      password: "hunter2",
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.email).toBe("ada@example.com");
+  });
+
+  it("normalises on signup and on reset requests too", () => {
+    expect(
+      signupSchema.safeParse({
+        name: "Ada",
+        email: "ADA@EXAMPLE.COM",
+        password: "12345678",
+      }).data?.email,
+    ).toBe("ada@example.com");
+    expect(
+      forgotPasswordSchema.safeParse({ email: " Ada@Example.com " }).data
+        ?.email,
+    ).toBe("ada@example.com");
+  });
+
+  it("still rejects a malformed address after trimming", () => {
+    const result = forgotPasswordSchema.safeParse({ email: "  nope  " });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe(
+      "Enter a valid email address.",
+    );
+  });
+});
+
 describe("email length cap (shared by login, signup and reset)", () => {
   // An uncapped address becomes an oversized Postgres index key — RateLimit's
   // primary key and User.email's unique index both reject it from inside an

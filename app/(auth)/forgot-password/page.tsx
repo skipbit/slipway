@@ -1,8 +1,9 @@
 import { type Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { ForgotPasswordForm } from "@/components/auth/password-reset-forms";
+import { AuthHeading } from "@/components/ui/auth-heading";
+import { TextLink } from "@/components/ui/text-link";
 
 export const metadata: Metadata = { title: "Forgot password" };
 
@@ -14,26 +15,17 @@ export default async function ForgotPasswordPage() {
 
   return (
     <div>
-      <h1 className="text-center text-2xl font-bold tracking-tight text-slate-900">
-        Forgot your password?
-      </h1>
-      <p className="mt-2 text-center text-sm text-slate-500">
-        Enter your email address and we&apos;ll send you a link to choose a new
-        one.
-      </p>
+      <AuthHeading
+        title="Forgot your password?"
+        subtitle="Enter your email address and we'll send you a link to choose a new one."
+      />
 
       <div className="mt-8">
         <ForgotPasswordForm />
       </div>
 
       <p className="mt-6 text-center text-sm text-slate-500">
-        Remembered it?{" "}
-        <Link
-          href="/login"
-          className="font-semibold text-indigo-600 hover:text-indigo-500"
-        >
-          Log in
-        </Link>
+        Remembered it? <TextLink href="/login">Log in</TextLink>
       </p>
     </div>
   );

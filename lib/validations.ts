@@ -1,13 +1,27 @@
 import { z } from "zod";
 
-// zod's z.email() checks shape, not size. Uncapped, a 3000-character address
-// still parses and then goes on to be a Postgres index key — RateLimit's
-// primary key ("forgot:email:<address>") and User.email's unique index both
-// blow past btree's 2704-byte row limit and throw from inside an
-// unauthenticated form. 254 is the RFC 5321 maximum.
+// Normalised before it is validated, so callers never have to remember to.
+// The address is an identity — User.email's unique index, a rate-limit bucket
+// key — and normalising at three separate call sites is three chances for the
+// fourth one to be forgotten and let "Ada@example.com" become a second account.
+//
+// zod's z.email() also checks shape, not size. Uncapped, a 3000-character
+// address still parses and then goes on to be a Postgres index key, blowing
+// past btree's 2704-byte row limit from inside an unauthenticated form. 254 is
+// the RFC 5321 maximum, and it is checked after the trim.
 const emailField = z
-  .email("Enter a valid email address.")
-  .max(254, "Email must be 254 characters or fewer.");
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(
+    z
+      .email("Enter a valid email address.")
+      .max(254, "Email must be 254 characters or fewer."),
+  );
+
+/** Shared with the client so its `minLength` cannot drift from this schema. */
+export const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 128;
 
 export const loginSchema = z.object({
   email: emailField,
@@ -18,8 +32,14 @@ export const loginSchema = z.object({
 // two can never drift into accepting different things.
 const passwordField = z
   .string()
-  .min(8, "Password must be at least 8 characters.")
-  .max(128, "Password must be 128 characters or fewer.");
+  .min(
+    PASSWORD_MIN_LENGTH,
+    `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`,
+  )
+  .max(
+    PASSWORD_MAX_LENGTH,
+    `Password must be ${PASSWORD_MAX_LENGTH} characters or fewer.`,
+  );
 
 export const signupSchema = z.object({
   name: z

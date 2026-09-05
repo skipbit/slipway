@@ -15,7 +15,7 @@ import { siteConfig } from "@/lib/site";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
-export function isEmailConfigured(): boolean {
+function isEmailConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
 }
 
@@ -74,10 +74,14 @@ async function send({ to, subject, html, text }: SendArgs): Promise<void> {
     }),
   });
 
+  // Read the body unconditionally: undici holds the connection out of the
+  // keep-alive pool until it is consumed or cancelled, so skipping it on the
+  // success path leaves reuse to a GC finalizer. It is also where Resend puts
+  // the actionable part of a failure ("domain not verified") — the status alone
+  // rarely tells you what to fix.
+  const body = await response.text().catch(() => "");
+
   if (!response.ok) {
-    // Body first — Resend puts the actionable part ("domain not verified") in
-    // there, and the status alone is rarely enough to fix anything.
-    const body = await response.text().catch(() => "");
     throw new Error(
       `Resend rejected the message (${response.status}): ${body.slice(0, 500)}`,
     );

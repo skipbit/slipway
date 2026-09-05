@@ -1,24 +1,30 @@
 "use client";
 
 import { useActionState } from "react";
-import Link from "next/link";
-import { Loader2 } from "lucide-react";
 import {
   requestPasswordResetAction,
   resetPasswordAction,
+  type AuthFormState,
   type PasswordResetFormState,
 } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { ErrorMessage, SuccessMessage } from "@/components/ui/message";
+import { TextLink } from "@/components/ui/text-link";
+import { PASSWORD_MIN_LENGTH } from "@/lib/validations";
 
-const initialState: PasswordResetFormState = { error: null, success: null };
+const requestInitialState: PasswordResetFormState = {
+  error: null,
+  success: null,
+};
+// The reset form has no success state — it redirects to /login on success.
+const resetInitialState: AuthFormState = { error: null };
 
 export function ForgotPasswordForm() {
   const [state, formAction, pending] = useActionState<
     PasswordResetFormState,
     FormData
-  >(requestPasswordResetAction, initialState);
+  >(requestPasswordResetAction, requestInitialState);
 
   // Replace the form once the request lands, rather than inviting a second
   // submit that would only eat into the per-email throttle.
@@ -27,12 +33,7 @@ export function ForgotPasswordForm() {
       <div className="space-y-4">
         <SuccessMessage>{state.success}</SuccessMessage>
         <p className="text-center text-sm text-slate-500">
-          <Link
-            href="/login"
-            className="font-semibold text-indigo-600 hover:text-indigo-500"
-          >
-            Back to log in
-          </Link>
+          <TextLink href="/login">Back to log in</TextLink>
         </p>
       </div>
     );
@@ -56,8 +57,7 @@ export function ForgotPasswordForm() {
 
       {state.error && <ErrorMessage>{state.error}</ErrorMessage>}
 
-      <Button type="submit" disabled={pending} className="w-full">
-        {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+      <Button type="submit" loading={pending} className="w-full">
         Send reset link
       </Button>
     </form>
@@ -65,10 +65,10 @@ export function ForgotPasswordForm() {
 }
 
 export function ResetPasswordForm({ token }: { token: string }) {
-  const [state, formAction, pending] = useActionState<
-    PasswordResetFormState,
-    FormData
-  >(resetPasswordAction, initialState);
+  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(
+    resetPasswordAction,
+    resetInitialState,
+  );
 
   return (
     <form action={formAction} className="space-y-5">
@@ -83,8 +83,8 @@ export function ResetPasswordForm({ token }: { token: string }) {
             type="password"
             autoComplete="new-password"
             required
-            minLength={8}
-            placeholder="At least 8 characters"
+            minLength={PASSWORD_MIN_LENGTH}
+            placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
           />
         </div>
       </div>
@@ -98,7 +98,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
             type="password"
             autoComplete="new-password"
             required
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             placeholder="Type it again"
           />
         </div>
@@ -106,8 +106,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
 
       {state.error && <ErrorMessage>{state.error}</ErrorMessage>}
 
-      <Button type="submit" disabled={pending} className="w-full">
-        {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+      <Button type="submit" loading={pending} className="w-full">
         Update password
       </Button>
     </form>

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
@@ -6,6 +7,13 @@ import { prisma } from "@/lib/prisma";
 // process), so we lean on the database everyone already shares. The upsert is
 // atomic — Postgres serializes ON CONFLICT updates per row — so concurrent
 // attempts can't race past the limit.
+
+/** A bucket's allowance. Passed around as one value so call sites can't
+ *  swap the two numbers. */
+export type RateLimitConfig = {
+  max: number;
+  windowSeconds: number;
+};
 
 export type RateLimitResult = {
   /** False once the caller has exceeded `limit` within the window. */
@@ -28,27 +36,39 @@ export type RateLimitResult = {
  * whose leftmost token is attacker-controlled, so it is only a fallback.
  *
  * Falls back to "unknown" (one shared bucket) rather than silently disabling
- * the limit when no header is present.
- *
- * The result is truncated. Callers concatenate it into a `RateLimit` bucket
- * key, which is that table's PRIMARY KEY: an unbounded header value (these are
- * client-supplied, and Node accepts headers up to 16KB) becomes an oversized
- * btree index row, Postgres raises `index row size ... exceeds btree version 4
- * maximum 2704`, and an unauthenticated form throws. An IPv6 address needs 45
- * characters; anything longer is a forged header or a broken proxy, and
- * collapsing those into one bucket is the correct outcome anyway.
+ * the limit when no header is present. The value is returned whole — bounding
+ * it for storage is rateLimit()'s job, not this function's.
  */
-const MAX_IP_LENGTH = 64;
-
 export async function getClientIp(): Promise<string> {
   const h = await headers();
   const realIp = h.get("x-real-ip");
-  if (realIp) return realIp.trim().slice(0, MAX_IP_LENGTH);
+  if (realIp) return realIp.trim();
   const forwardedFor = h.get("x-forwarded-for");
-  if (forwardedFor) {
-    return forwardedFor.split(",")[0]!.trim().slice(0, MAX_IP_LENGTH);
-  }
+  if (forwardedFor) return forwardedFor.split(",")[0]!.trim();
   return "unknown";
+}
+
+/**
+ * Keep a bucket key inside what a btree index row can hold.
+ *
+ * `RateLimit.key` is the table's PRIMARY KEY, and callers build keys by
+ * concatenating whatever they are throttling on — an IP from a client-supplied
+ * header, an address typed into a public form. Unbounded, Postgres rejects the
+ * INSERT with `index row size ... exceeds btree version 4 maximum 2704` and an
+ * unauthenticated route throws. This bound lives here, next to the table that
+ * imposes it, so it covers every caller and every key source added later; two
+ * separate producers have already had to learn it the hard way.
+ *
+ * Long keys keep their prefix and hash the rest, so buckets stay identifiable
+ * in the table without a length limit leaking into the callers' contracts.
+ */
+const MAX_KEY_LENGTH = 200;
+
+export function bucketKey(key: string): string {
+  if (key.length <= MAX_KEY_LENGTH) return key;
+  const colon = key.indexOf(":");
+  const prefix = colon === -1 ? "" : key.slice(0, colon + 1);
+  return `${prefix}h:${createHash("sha256").update(key).digest("base64url")}`;
 }
 
 /**
@@ -65,7 +85,7 @@ export async function rateLimit(
 
   const rows = await prisma.$queryRaw<{ count: number; expiresAt: Date }[]>`
     INSERT INTO "RateLimit" ("key", "count", "expiresAt")
-    VALUES (${key}, 1, ${expiresAt})
+    VALUES (${bucketKey(key)}, 1, ${expiresAt})
     ON CONFLICT ("key") DO UPDATE SET
       "count" = CASE
         WHEN "RateLimit"."expiresAt" < now() THEN 1

@@ -53,6 +53,11 @@ public pages (needs `npx playwright install chromium` once).
   for Google OAuth. Email/password lives in the Credentials provider with
   bcryptjs hashes on `User.passwordHash`. Google sign-in enables itself when
   `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set (see `isGoogleConfigured`).
+- **Startup config check**: `instrumentation.ts` runs `assertProductionConfig()`
+  (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
+  — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot
+  instead of mailing links nobody can open. Email being unconfigured entirely
+  stays legal: that is the documented console-fallback mode.
 - **Password reset**: `lib/password-reset.ts` mints a 256-bit token, stores
   only its SHA-256, and redeems it exactly once (`deleteMany` is the atomic
   gate). `lib/email.ts` sends it through Resend over plain `fetch` — and when
@@ -135,11 +140,10 @@ public pages (needs `npx playwright install chromium` once).
 - `NEXT_PUBLIC_*` is substituted at **build** time, so `siteConfig.url` is
   frozen into the image. Anything that leaves the app (password reset emails)
   must go through `externalUrl()` in `lib/site.ts`, which reads the
-  runtime-only `APP_URL`. Get this wrong and a deployed image mails links to
-  `http://localhost:3000` with nothing failing. There is deliberately no second
-  helper reading the build-time value — don't add one back. Note `externalUrl`
-  falls back with `||`, not `??`: `.env.example` ships `APP_URL=""`, and an
-  empty string is non-nullish.
+  runtime-only `APP_URL`; there is deliberately no second helper reading the
+  build-time value, so don't add one back. `instrumentation.ts` refuses to
+  start a production server without it. The `||`-not-`??` detail and why are on
+  the function's docstring.
 - `.env` is gitignored and must stay that way; `.env.example` documents every
   variable. Never commit real keys.
 

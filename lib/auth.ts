@@ -34,8 +34,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
-        const email = parsed.data.email.toLowerCase();
-        const user = await prisma.user.findUnique({ where: { email } });
+        // Already trimmed and lower-cased by loginSchema.
+        const user = await prisma.user.findUnique({
+          where: { email: parsed.data.email },
+        });
         if (!user?.passwordHash) return null;
 
         const valid = await bcrypt.compare(

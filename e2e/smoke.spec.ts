@@ -56,7 +56,9 @@ test("signup page renders its fields and links back to login", async ({
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test("login page offers a route to password recovery", async ({ page }) => {
+test("password recovery is reachable from login and absent from signup", async ({
+  page,
+}) => {
   await page.goto("/login");
 
   await page.getByRole("link", { name: "Forgot password?" }).click();
@@ -68,6 +70,12 @@ test("login page offers a route to password recovery", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Send reset link" }),
   ).toBeVisible();
+
+  // The link is login-only — on signup there is no account to recover yet.
+  await page.goto("/signup");
+  await expect(
+    page.getByRole("link", { name: "Forgot password?" }),
+  ).toHaveCount(0);
 });
 
 test("forgot-password page links back to login", async ({ page }) => {
@@ -78,13 +86,4 @@ test("forgot-password page links back to login", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Welcome back" }),
   ).toBeVisible();
-});
-
-test("signup page does not offer password recovery", async ({ page }) => {
-  // The link is login-only — on signup there is no account to recover yet.
-  await page.goto("/signup");
-
-  await expect(
-    page.getByRole("link", { name: "Forgot password?" }),
-  ).toHaveCount(0);
 });

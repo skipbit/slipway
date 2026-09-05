@@ -78,12 +78,11 @@ server log (`docker compose logs -f app`) instead of being sent. Set both to
 send real mail. Set **both** — a key without a sender switches the console
 fallback off and then fails at the provider, which the user never sees.
 
-Under `NODE_ENV=production` the console fallback is refused outright. Be clear
-on what that does and doesn't do: it stops live tokens reaching your log
-aggregator and records the reason server-side, but the user still sees the same
-neutral "a reset link is on its way" — `requestPasswordResetAction` swallows
-every send failure on purpose, because which addresses fail is itself a signal.
-Check your logs, or assert on the variables at deploy time.
+Setting only one of the two is caught at startup — a production server refuses
+to boot. Setting neither is legal, but then `NODE_ENV=production` refuses the
+console fallback too: no live token reaches your logs, and the user still sees
+the neutral "a reset link is on its way", because which addresses fail to send
+is itself a signal. Watch your logs if you deploy that way.
 
 ## Working with Claude Code
 
@@ -111,7 +110,8 @@ app/
   dashboard/               protected app shell: overview, settings
   page.tsx                 landing page (hero, features, FAQ)
 components/                landing, auth, dashboard, ui primitives
-lib/                       auth.ts, prisma.ts, email.ts, password-reset.ts, site.ts, ...
+lib/                       auth.ts, prisma.ts, email.ts, password-reset.ts, env.ts, ...
+instrumentation.ts         startup check: production config that must not be wrong
 prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
 prisma/migrations/         versioned migration SQL, applied on every start
 proxy.ts                   cookie check for /dashboard (authoritative check in layout)
@@ -122,7 +122,9 @@ proxy.ts                   cookie check for /dashboard (authoritative check in l
 
 Set `APP_URL` to the real origin. `NEXT_PUBLIC_APP_URL` is inlined when the
 image is built, so a prebuilt image would otherwise mail password reset links
-pointing at `http://localhost:3000` — and nothing about that fails loudly.
+pointing at `http://localhost:3000`. `instrumentation.ts` checks this at
+startup, so a production server without it refuses to boot rather than failing
+quietly.
 
 The stack is already Postgres. Two paths:
 
@@ -234,14 +236,11 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 パスワードリセットはメールアカウント無しでもそのまま動きます。`RESEND_API_KEY` /
 `EMAIL_FROM` を未設定のままにすると、リセットリンクは送信されずサーバーログ
 (`docker compose logs -f app`)に出力されます。実際に送るなら両方を設定してください。
-設定するなら**両方**です。キーだけ入れて送信元が空だとコンソール出力が止まった上で
-プロバイダ側で失敗し、ユーザーには何も見えません。
-
-`NODE_ENV=production` ではコンソール出力を拒否します。ただし効果の範囲は正確に
-把握してください — ログに生トークンが流れるのを止め、サーバー側に理由を残しますが、
-ユーザーには従来どおり中立の「リセットリンクを送信しました」が表示されます。
-`requestPasswordResetAction` は送信失敗を意図的に握り潰すためで(どのアドレスで
-失敗したかが情報になるため)、検知はログか、デプロイ時の環境変数チェックで行います。
+設定するなら**両方**です。片方だけの状態は起動時に検出し、本番サーバーは起動を
+拒否します。両方未設定は許容しますが、その場合 `NODE_ENV=production` では
+コンソール出力も拒否します。生トークンはログに流れず、ユーザーには中立の
+「リセットリンクを送信しました」が表示されます(どのアドレスで送信に失敗したかが
+情報になるため、意図的に握り潰しています)。この構成で運用するならログを見てください。
 
 ## Claude Code との開発
 
@@ -270,7 +269,8 @@ app/
   dashboard/               保護されたアプリシェル: 概要、設定
   page.tsx                 ランディングページ(ヒーロー、機能、FAQ)
 components/                landing、auth、dashboard、ui プリミティブ
-lib/                       auth.ts、prisma.ts、email.ts、password-reset.ts、site.ts ほか
+lib/                       auth.ts、prisma.ts、email.ts、password-reset.ts、env.ts ほか
+instrumentation.ts         起動時チェック: 間違っていてはいけない本番設定
 prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
 prisma/migrations/         マイグレーション SQL — 起動時に自動適用
 proxy.ts                   /dashboard の Cookie チェック(正式な検証は layout 側)
@@ -281,7 +281,8 @@ proxy.ts                   /dashboard の Cookie チェック(正式な検証は
 
 `APP_URL` に実際のオリジンを設定してください。`NEXT_PUBLIC_APP_URL` はビルド時に
 埋め込まれるため、ビルド済みイメージのままだとパスワードリセットのメールが
-`http://localhost:3000` を指すリンクを送ってしまい、しかも何もエラーになりません。
+`http://localhost:3000` を指すリンクを送ってしまいます。`instrumentation.ts` が
+起動時に検査し、未設定の本番サーバーは黙って動かず起動を拒否します。
 
 スタックは既に Postgres。経路は2つ：
 

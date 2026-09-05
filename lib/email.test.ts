@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isEmailConfigured, sendPasswordResetEmail } from "@/lib/email";
+import { sendPasswordResetEmail } from "@/lib/email";
 
 const RESET_URL = "https://app.example.com/reset-password?token=abc-123";
 
@@ -13,16 +13,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
-});
-
-describe("isEmailConfigured", () => {
-  it("needs both the key and the from address", () => {
-    vi.stubEnv("RESEND_API_KEY", "re_123");
-    expect(isEmailConfigured()).toBe(false);
-
-    vi.stubEnv("EMAIL_FROM", "Slipway <hi@example.com>");
-    expect(isEmailConfigured()).toBe(true);
-  });
 });
 
 describe("sendPasswordResetEmail without credentials", () => {

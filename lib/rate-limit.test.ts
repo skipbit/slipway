@@ -25,6 +25,7 @@ vi.mock("@/lib/prisma", () => ({
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import {
+  bucketKey,
   cleanupExpiredRateLimits,
   getClientIp,
   rateLimit,
@@ -58,6 +59,12 @@ describe("getClientIp", () => {
   it("returns 'unknown' when no proxy header is present", async () => {
     headersMock.mockResolvedValue(new Headers());
     expect(await getClientIp()).toBe("unknown");
+  });
+
+  it("returns the header whole — bounding it is rateLimit's job", async () => {
+    const forged = "1".repeat(4000);
+    headersMock.mockResolvedValue(new Headers({ "x-real-ip": forged }));
+    expect(await getClientIp()).toBe(forged);
   });
 });
 
@@ -110,6 +117,58 @@ describe("rateLimit", () => {
     const result = await rateLimit("signup:203.0.113.7", 5, 3600);
     expect(result.success).toBe(true);
     expect(result.remaining).toBe(4);
+  });
+});
+
+describe("bucketKey", () => {
+  // RateLimit.key is the table's PRIMARY KEY, so this bound is what keeps an
+  // unbounded caller-built key (a forged X-Real-IP, an address typed into a
+  // public form) from tripping `index row size ... exceeds btree version 4
+  // maximum 2704` inside an unauthenticated route.
+  it("leaves an ordinary key untouched", () => {
+    expect(bucketKey("login:203.0.113.7")).toBe("login:203.0.113.7");
+    expect(bucketKey("forgot:email:ada@example.com")).toBe(
+      "forgot:email:ada@example.com",
+    );
+  });
+
+  it("bounds a key that would not fit an index row", () => {
+    const forged = `login:${"1".repeat(4000)}`;
+    expect(bucketKey(forged).length).toBeLessThan(200);
+  });
+
+  it("keeps the prefix, so buckets stay identifiable", () => {
+    expect(bucketKey(`login:${"1".repeat(4000)}`)).toMatch(/^login:h:/);
+  });
+
+  it("keeps distinct long keys in distinct buckets", () => {
+    const a = bucketKey(`login:${"1".repeat(4000)}`);
+    const b = bucketKey(`login:${"2".repeat(4000)}`);
+    expect(a).not.toBe(b);
+  });
+
+  it("is stable, or a caller would get a fresh bucket per request", () => {
+    const forged = `login:${"1".repeat(4000)}`;
+    expect(bucketKey(forged)).toBe(bucketKey(forged));
+  });
+
+  it("copes with a key that has no prefix at all", () => {
+    expect(bucketKey("x".repeat(4000))).toMatch(/^h:/);
+  });
+});
+
+describe("rateLimit key handling", () => {
+  it("stores the bounded key, not the raw one", async () => {
+    queryRawMock.mockResolvedValue([
+      { count: 1, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    const forged = `login:${"1".repeat(4000)}`;
+
+    await rateLimit(forged, 10, 600);
+
+    const values = queryRawMock.mock.calls[0]!.slice(1);
+    expect(values).toContain(bucketKey(forged));
+    expect(values).not.toContain(forged);
   });
 });
 
