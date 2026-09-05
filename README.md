@@ -164,9 +164,11 @@ Then:
 ## Known limitations (deliberate scope cuts)
 
 - Email verification is a nudge, not a gate: nothing is blocked while an
-  address is unconfirmed. `user.emailVerified` is the flag and
-  `app/dashboard/layout.tsx` is where a blanket rule would go — pick the policy
-  your product needs.
+  address is unconfirmed. `user.emailVerified` is the flag; gate in the page or
+  action that matters, which already loads the user. A blanket rule in
+  `app/dashboard/layout.tsx` is possible but not free — that layout runs no
+  query today, so a gate there adds a database read to every dashboard request,
+  which is exactly what the JWT session strategy exists to avoid.
 - `allowDangerousEmailAccountLinking` is on, so a Google sign-in joins an
   existing password account with the same address. That is a convenience with a
   known edge: whoever signed up first owns the row. `emailVerified` is not set
@@ -341,8 +343,11 @@ per-IP でなくなります。`FORGOT_PASSWORD_IP_LIMIT` はその状態でも�
 ## 既知の制限(意図的なスコープ)
 
 - メール認証は通知であって門番ではありません。未確認でも何も制限しません。判定は
-  `user.emailVerified`、一括で塞ぐなら `app/dashboard/layout.tsx` — 製品に必要な
-  ポリシーはご自身で決めてください。
+  `user.emailVerified` で、安いのは「対象のページまたはアクションで塞ぐ」方法です
+  (どちらも既にユーザーを読み込んでいます)。`app/dashboard/layout.tsx` で一括に
+  することもできますが無料ではありません — この layout は現在クエリを 1 本も撃って
+  いないため、そこに置くと全ダッシュボードリクエストに DB 読み取りが乗ります。
+  JWT セッション戦略が避けているのはまさにそれです。
 - セッションが JWT のため、リセット前に盗まれたセッション Cookie はリセットでは
   失効せず、期限まで有効なままです。塞ぐには全リクエストで `passwordChangedAt` を
   照合する必要があり、JWT を選んだ理由である「リクエスト毎の DB アクセスなし」を

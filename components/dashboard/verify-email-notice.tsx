@@ -13,9 +13,12 @@ import { InlineMessage } from "@/components/ui/message";
  * Shown while an account's address is unconfirmed.
  *
  * A nudge, not a wall: nothing in this boilerplate is gated on verification, so
- * a user who ignores this keeps working. Gate what matters for your product in
- * the page or action that matters — `user.emailVerified` is the flag, and
- * app/dashboard/layout.tsx is where a blanket rule would go.
+ * a user who ignores this keeps working. `user.emailVerified` is the flag, and
+ * the cheap place to gate is the page or action that matters — those already
+ * load the user. A blanket rule in app/dashboard/layout.tsx costs more than it
+ * looks: that layout makes no database query today, and adding one there puts a
+ * read on every dashboard request, which is the property the JWT session
+ * strategy was chosen for.
  */
 export function VerifyEmailNotice({ email }: { email: string }) {
   const [state, formAction, pending] = useActionState<

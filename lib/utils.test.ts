@@ -59,6 +59,12 @@ describe("humanDuration", () => {
     expect(humanDuration(59 * 60)).toBe("59 minutes");
   });
 
+  it("singularises every unit, not just the big ones", () => {
+    expect(humanDuration(60)).toBe("1 minute");
+    expect(humanDuration(60 * 60)).toBe("1 hour");
+    expect(humanDuration(24 * 60 * 60)).toBe("1 day");
+  });
+
   it("says an hour rather than sixty minutes", () => {
     expect(humanDuration(60 * 60)).toBe("1 hour");
     expect(humanDuration(2 * 60 * 60)).toBe("2 hours");

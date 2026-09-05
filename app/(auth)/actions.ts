@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { AuthError } from "next-auth";
 import { auth, hashPassword, signIn, signOut } from "@/lib/auth";
-import { isEmailConfigured } from "@/lib/env";
+import { emailDeliveryUnavailable } from "@/lib/env";
 import {
   EMAIL_VERIFICATION_LINK,
   PASSWORD_RESET_LINK,
@@ -243,12 +243,11 @@ export async function requestPasswordResetAction(
     };
   }
 
-  // Production with no mail credentials can never deliver, and the neutral
-  // message would be a lie repeated forever. Saying so plainly is safe: the
-  // answer depends on our configuration, not on whether the account exists, so
-  // it is the same for everyone and leaks nothing. Development keeps the
-  // console fallback and the neutral message.
-  if (process.env.NODE_ENV === "production" && !isEmailConfigured()) {
+  // The neutral message would be a lie repeated forever. Saying so plainly is
+  // safe: the answer depends on our configuration, not on whether the account
+  // exists, so it is the same for everyone and leaks nothing. Development keeps
+  // the console fallback and the neutral message.
+  if (emailDeliveryUnavailable()) {
     return {
       error:
         "Password reset is unavailable right now. Please contact support.",
@@ -356,14 +355,7 @@ export async function resetPasswordAction(
   return { error: null };
 }
 
-/**
- * Redeem a verification link.
- *
- * Driven by a button on /verify-email rather than by the GET, on purpose:
- * corporate mail scanners and link prefetchers follow URLs in email, and a
- * single-use token consumed on GET is one that the actual recipient then finds
- * expired. The page checks the token read-only and this spends it.
- */
+/** Spends the token that /verify-email checked read-only — reasoning there. */
 export async function verifyEmailAction(
   _prev: AuthFormState,
   formData: FormData,

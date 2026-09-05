@@ -2,7 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { EMAIL_VERIFICATION_LINK } from "@/lib/email-token";
-import { isEmailConfigured } from "@/lib/env";
+import { emailDeliveryUnavailable } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { throttleMessage, type RateLimitConfig } from "@/lib/rate-limit";
 
@@ -30,12 +30,11 @@ export async function resendVerificationAction(
     return { error: "Sign in to request a new link.", success: null };
   }
 
-  // Production with no mail credentials can never deliver, and "try again in a
-  // few minutes" would be a lie about a permanently dead button. Safe to say
-  // plainly here — unlike the reset form, the caller is authenticated and this
-  // is their own address, so there is nothing to leak. lib/env.ts deliberately
-  // lets a server boot this way; see its note.
-  if (process.env.NODE_ENV === "production" && !isEmailConfigured()) {
+  // "Try again in a few minutes" would be a lie about a permanently dead
+  // button. Safe to say plainly: the caller is authenticated and this is their
+  // own address, so there is nothing to leak. lib/env.ts deliberately lets a
+  // server boot this way; see its note.
+  if (emailDeliveryUnavailable()) {
     return {
       error: "Email isn't configured on this deployment. Contact support.",
       success: null,
@@ -64,8 +63,6 @@ export async function resendVerificationAction(
   try {
     await EMAIL_VERIFICATION_LINK.issueAndSend(user);
   } catch (err) {
-    // The caller is authenticated and this is their own address, so unlike the
-    // password reset flow there is no enumeration risk in saying it failed.
     console.error("[verify-email] resend failed", err);
     return {
       error: "We couldn't send that just now. Try again in a few minutes.",

@@ -138,7 +138,7 @@ type Recipient = { id: string; email: string };
  * One flow: a purpose, how long its links last, where they point, and how they
  * are worded — bound together so no call site can pair them up wrongly.
  */
-export type EmailLink = {
+type EmailLink = {
   readonly ttlSeconds: number;
   /** Issue a link for `user` and mail it. */
   issueAndSend(user: Recipient): Promise<void>;
