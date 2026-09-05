@@ -1,17 +1,17 @@
 "use client";
 
 import { useActionState } from "react";
+import { type DashboardFormState } from "@/app/dashboard/actions";
 import {
   deleteAccountAction,
   updateProfileAction,
-  type SettingsFormState,
 } from "@/app/dashboard/settings/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
 export function ProfileForm({ defaultName }: { defaultName: string }) {
   const [state, formAction, pending] = useActionState<
-    SettingsFormState,
+    DashboardFormState,
     FormData
   >(updateProfileAction, { error: null, success: null });
 

@@ -15,6 +15,19 @@ const eslintConfig = [
     settings: { react: { version: reactPkg.version } },
   },
   {
+    // `useActionState` fixes the shape of a form action at (prevState,
+    // formData), so an action that needs neither still has to declare both.
+    // The codebase already names those `_prev` / `_formData`; this makes the
+    // convention mean something to the linter instead of leaving warnings that
+    // everyone learns to scroll past.
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cn, firstParam, formatDate } from "@/lib/utils";
+import { cn, firstParam, formatDate, humanDuration } from "@/lib/utils";
 
 describe("cn", () => {
   it("joins truthy class names with a space", () => {
@@ -48,5 +48,25 @@ describe("firstParam", () => {
 
   it("returns undefined for an empty array rather than a hole", () => {
     expect(firstParam([])).toBeUndefined();
+  });
+});
+
+describe("humanDuration", () => {
+  // The emails and the "this link expired" pages both explain the same number;
+  // one saying "1 day" while the other says "24 hours" reads like a bug.
+  it("keeps sub-hour lifetimes in minutes", () => {
+    expect(humanDuration(15 * 60)).toBe("15 minutes");
+    expect(humanDuration(59 * 60)).toBe("59 minutes");
+  });
+
+  it("says an hour rather than sixty minutes", () => {
+    expect(humanDuration(60 * 60)).toBe("1 hour");
+    expect(humanDuration(2 * 60 * 60)).toBe("2 hours");
+    expect(humanDuration(90 * 60)).toBe("2 hours");
+  });
+
+  it("moves to days at a day, and singularises", () => {
+    expect(humanDuration(24 * 60 * 60)).toBe("1 day");
+    expect(humanDuration(48 * 60 * 60)).toBe("2 days");
   });
 });

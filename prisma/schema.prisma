@@ -23,9 +23,9 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts            Account[]
-  sessions            Session[]
-  passwordResetTokens PasswordResetToken[]
+  accounts    Account[]
+  sessions    Session[]
+  emailTokens EmailToken[]
 }
 
 model Account {
@@ -66,25 +66,36 @@ model VerificationToken {
   @@id([identifier, token])
 }
 
-// Single-use password reset tokens. Only the SHA-256 of the token is stored —
-// the plaintext exists solely in the email that carried it, so a dump of this
-// table yields nothing an attacker can present at /reset-password. Rows are
-// deleted the moment a reset succeeds, and issuing a new link first drops the
-// user's previous one — so a user has at most one live token at a time.
-// Expired-but-unclicked rows are reclaimed by
-// cleanupExpiredPasswordResetTokens() in lib/password-reset.ts.
-model PasswordResetToken {
-  id        String   @id @default(cuid())
+// What a mailed single-use secret is for. One table rather than one per
+// purpose: password reset and email verification differ only in their TTL and
+// in what redeeming them does, so a second table would have been a copy of this
+// one plus a copy of every statement that touches it.
+enum EmailTokenPurpose {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+}
+
+// Single-use secrets sent by email. Only the SHA-256 of the token is stored —
+// the plaintext exists solely in the message that carried it, so a dump of this
+// table yields nothing an attacker can present back to the app. Rows are
+// deleted the moment they are redeemed, and issuing a new one first drops the
+// user's previous token OF THE SAME PURPOSE — so a user has at most one live
+// link per purpose, and asking for a new reset link does not invalidate their
+// pending verification. Expired-but-unclicked rows are reclaimed by
+// cleanupExpiredEmailTokens() in lib/email-token.ts.
+model EmailToken {
+  id        String            @id @default(cuid())
   userId    String
-  tokenHash String   @unique
+  purpose   EmailTokenPurpose
+  tokenHash String            @unique
   // Timestamptz for the same reason as RateLimit.expiresAt: the comparison
   // must not depend on the DB session's TimeZone.
-  expiresAt DateTime @db.Timestamptz(3)
-  createdAt DateTime @default(now())
+  expiresAt DateTime          @db.Timestamptz(3)
+  createdAt DateTime          @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userId, purpose])
   @@index([expiresAt])
 }
 

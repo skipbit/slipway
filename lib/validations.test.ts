@@ -5,6 +5,7 @@ import {
   resetPasswordSchema,
   signupSchema,
   updateProfileSchema,
+  verifyEmailSchema,
 } from "@/lib/validations";
 
 describe("loginSchema", () => {
@@ -237,6 +238,47 @@ describe("resetPasswordSchema", () => {
     expect(result.error?.issues[0]?.message).toBe(
       "Password must be at least 8 characters.",
     );
+  });
+});
+
+describe("emailed-link tokens", () => {
+  // Whatever comes back from a link is client-supplied, and it goes on to be
+  // hashed and bound into a query on an unauthenticated route.
+  const overlong = "a".repeat(201);
+
+  it("accepts a token of the shape we actually mint", () => {
+    const token = "a".repeat(43);
+    expect(verifyEmailSchema.safeParse({ token }).success).toBe(true);
+    expect(
+      resetPasswordSchema.safeParse({
+        token,
+        password: "12345678",
+        confirmPassword: "12345678",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an empty token on both forms", () => {
+    expect(verifyEmailSchema.safeParse({ token: "" }).error?.issues[0]?.message)
+      .toBe("This confirmation link is invalid.");
+    expect(
+      resetPasswordSchema.safeParse({
+        token: "",
+        password: "12345678",
+        confirmPassword: "12345678",
+      }).error?.issues[0]?.message,
+    ).toBe("This reset link is invalid.");
+  });
+
+  it("caps the length on both forms", () => {
+    expect(verifyEmailSchema.safeParse({ token: overlong }).success).toBe(false);
+    expect(
+      resetPasswordSchema.safeParse({
+        token: overlong,
+        password: "12345678",
+        confirmPassword: "12345678",
+      }).success,
+    ).toBe(false);
   });
 });
 

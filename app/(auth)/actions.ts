@@ -2,14 +2,14 @@
 
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { hashPassword, signIn, signOut } from "@/lib/auth";
+import { auth, hashPassword, signIn, signOut } from "@/lib/auth";
 import { isEmailConfigured } from "@/lib/env";
-import { sendPasswordResetEmail } from "@/lib/email";
 import {
-  RESET_TOKEN_TTL_SECONDS,
-  consumePasswordResetToken,
-  createPasswordResetToken,
-} from "@/lib/password-reset";
+  EmailTokenPurpose,
+  consumeEmailToken,
+  sendEmailVerificationLink,
+  sendPasswordResetLink,
+} from "@/lib/email-token";
 import { prisma } from "@/lib/prisma";
 import {
   getClientIp,
@@ -17,12 +17,12 @@ import {
   rateLimit,
   type RateLimitConfig,
 } from "@/lib/rate-limit";
-import { externalUrl } from "@/lib/site";
 import {
   forgotPasswordSchema,
   loginSchema,
   resetPasswordSchema,
   signupSchema,
+  verifyEmailSchema,
 } from "@/lib/validations";
 
 export type AuthFormState = { error: string | null };
@@ -87,6 +87,13 @@ const FORGOT_PASSWORD_EMAIL_LIMIT: RateLimitConfig = {
 };
 const RESET_PASSWORD_LIMIT: RateLimitConfig = {
   max: 10,
+  windowSeconds: 60 * 60,
+};
+// Redeeming a confirmation link. Guessing is not the threat (256-bit tokens);
+// this is only here so a flood of submissions cannot pound the database, and it
+// is loose enough that a family behind one address never notices.
+const VERIFY_EMAIL_LIMIT: RateLimitConfig = {
+  max: 100,
   windowSeconds: 60 * 60,
 };
 
@@ -176,9 +183,18 @@ export async function signupAction(
 
   const passwordHash = await hashPassword(parsed.data.password);
   try {
-    await prisma.user.create({
+    const user = await prisma.user.create({
       data: { name: parsed.data.name, email, passwordHash },
     });
+
+    try {
+      await sendEmailVerificationLink(user);
+    } catch (sendErr) {
+      // Never fail the signup over this. The account exists, the user can sign
+      // in, and the dashboard offers a resend — turning "we couldn't send mail"
+      // into "your account wasn't created" would be the worse outcome by far.
+      console.error("[verify-email] failed to send on signup", sendErr);
+    }
   } catch (err) {
     // The findUnique above is a check, not a lock: two signups for the same
     // address can both pass it and race to the insert. The unique index is the
@@ -270,12 +286,7 @@ export async function requestPasswordResetAction(
   // set a password"), drop the passwordHash check and this becomes that.
   if (user?.passwordHash) {
     try {
-      const token = await createPasswordResetToken(user.id);
-      await sendPasswordResetEmail(
-        user.email,
-        externalUrl(`/reset-password?token=${encodeURIComponent(token)}`),
-        RESET_TOKEN_TTL_SECONDS,
-      );
+      await sendPasswordResetLink(user);
     } catch (err) {
       // Swallowed on purpose: which addresses fail to send is itself a signal,
       // and the user can simply request another link. The operator gets the
@@ -320,9 +331,26 @@ export async function resetPasswordAction(
   // leave the user with an unchanged password AND a spent link, sent back to a
   // /forgot-password bucket they have already paid into.
   const userId = await prisma.$transaction(async (tx) => {
-    const id = await consumePasswordResetToken(parsed.data.token, tx);
+    const id = await consumeEmailToken(
+      parsed.data.token,
+      EmailTokenPurpose.PASSWORD_RESET,
+      tx,
+    );
     if (!id) return null;
-    await tx.user.update({ where: { id }, data: { passwordHash } });
+    // Same lock, same order as issueEmailToken: that one takes the User row
+    // before touching EmailToken, and taking them the other way round here is
+    // an ABBA deadlock waiting for a "resend" in one tab and a submit in
+    // another. Postgres would abort one side with 40P01 — a 500 on a public
+    // form.
+    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${id} FOR UPDATE`;
+    // Redeeming this link proved control of the address it was sent to, which
+    // is the whole of what verification asks for — so an unverified account
+    // that recovers its password comes out verified rather than being asked to
+    // prove the same thing twice.
+    await tx.user.update({
+      where: { id },
+      data: { passwordHash, emailVerified: new Date() },
+    });
     return id;
   });
 
@@ -344,6 +372,62 @@ export async function resetPasswordAction(
   // Unreachable: signOut throws to redirect. Unlike redirect(), its type does
   // not say so, so TypeScript still wants a return.
   return { error: null };
+}
+
+/**
+ * Redeem a verification link.
+ *
+ * Driven by a button on /verify-email rather than by the GET, on purpose:
+ * corporate mail scanners and link prefetchers follow URLs in email, and a
+ * single-use token consumed on GET is one that the actual recipient then finds
+ * expired. The page checks the token read-only and this spends it.
+ */
+export async function verifyEmailAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const parsed = verifyEmailSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
+  }
+
+  const blocked = await throttleByIp("verify", VERIFY_EMAIL_LIMIT);
+  if (blocked) return blocked;
+
+  const userId = await prisma.$transaction(async (tx) => {
+    const id = await consumeEmailToken(
+      parsed.data.token,
+      EmailTokenPurpose.EMAIL_VERIFICATION,
+      tx,
+    );
+    if (!id) return null;
+    // See the note in resetPasswordAction: same lock order as issueEmailToken.
+    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${id} FOR UPDATE`;
+    await tx.user.update({
+      where: { id },
+      data: { emailVerified: new Date() },
+    });
+    return id;
+  });
+
+  if (!userId) {
+    return {
+      error:
+        "This confirmation link is invalid or has expired. Sign in and ask for a new one.",
+    };
+  }
+
+  // Someone can confirm from a different device than the one they signed up
+  // on, so there may be no session here to send to the dashboard — and the
+  // session there is may belong to somebody else, since the token deliberately
+  // is not session-scoped. Only tell the dashboard "confirmed" when it is the
+  // signed-in user's own address that just got confirmed.
+  const session = await auth();
+  redirect(
+    session?.user?.id === userId ? "/dashboard?verified=1" : "/login?verified=1",
+  );
 }
 
 export async function googleSignInAction() {
