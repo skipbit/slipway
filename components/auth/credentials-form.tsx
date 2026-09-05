@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { type AuthFormState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,17 @@ export function CredentialsForm({ mode, action }: CredentialsFormProps) {
       </div>
 
       <div>
-        <Label htmlFor="password">Password</Label>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="password">Password</Label>
+          {mode === "login" && (
+            <Link
+              href="/forgot-password"
+              className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
+            >
+              Forgot password?
+            </Link>
+          )}
+        </div>
         <div className="mt-1.5">
           <Input
             id="password"

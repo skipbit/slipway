@@ -25,6 +25,7 @@ get your product into the water fast.
 
 - **Next.js 16** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
+- **Password reset** — single-use hashed tokens over email (Resend), rate limited and safe against account enumeration; with no mail credentials the link is logged to the console so the flow works on a fresh clone (refused in production, so a misconfigured deploy fails loudly instead of leaking tokens into a log)
 - **Prisma 7 + Postgres** — Rust-free client via the pg driver adapter; one-command local stack via Docker Compose; the same containerized app + Postgres in production; versioned migrations committed under `prisma/migrations/`
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
@@ -71,6 +72,13 @@ To enable Google sign-in later, create OAuth credentials in the
 (redirect URI: `http://localhost:3000/api/auth/callback/google`) and set
 `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`. The button enables itself.
 
+Password reset works out of the box with no email account: leave
+`RESEND_API_KEY` / `EMAIL_FROM` unset and the reset link is printed to the
+server log (`docker compose logs -f app`) instead of being sent. Set both to
+send real mail — and note the console fallback is refused when
+`NODE_ENV=production`, so a deploy that forgets them fails loudly rather than
+writing live tokens to your log aggregator.
+
 ## Working with Claude Code
 
 This is the part other boilerplates don't ship:
@@ -92,19 +100,23 @@ Open the repo with [Claude Code](https://claude.com/claude-code) and try:
 
 ```
 app/
-  (auth)/                  login & signup pages + server actions
+  (auth)/                  login / signup / password reset + server actions
   api/auth/[...nextauth]/  Auth.js route handler
   dashboard/               protected app shell: overview, settings
   page.tsx                 landing page (hero, features, FAQ)
 components/                landing, auth, dashboard, ui primitives
-lib/                       auth.ts, prisma.ts, site.ts, validations.ts, utils.ts
-prisma/schema.prisma       User / Account / Session / VerificationToken
+lib/                       auth.ts, prisma.ts, email.ts, password-reset.ts, site.ts, ...
+prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
 prisma/migrations/         versioned migration SQL, applied on every start
 proxy.ts                   cookie check for /dashboard (authoritative check in layout)
 .claude/                   CLAUDE.md companion: agents, commands, settings
 ```
 
 ## Going to production
+
+Set `APP_URL` to the real origin. `NEXT_PUBLIC_APP_URL` is inlined when the
+image is built, so a prebuilt image would otherwise mail password reset links
+pointing at `http://localhost:3000` — and nothing about that fails loudly.
 
 The stack is already Postgres. Two paths:
 
@@ -132,8 +144,13 @@ Then:
 
 ## Known limitations (deliberate scope cuts)
 
-- No email verification or password reset flow (requires an email provider —
-  Resend/Postmark is the natural next step).
+- No email verification yet. Password reset is in (`lib/password-reset.ts`);
+  verification would reuse the same `lib/email.ts` seam.
+- Sessions are JWTs, so a password reset cannot revoke a session cookie stolen
+  beforehand — it stays valid until it expires. Closing that means a
+  `passwordChangedAt` check on every request, which costs the "no DB hit per
+  request" property JWTs were chosen for. `resetPasswordAction` spells out the
+  trade-off.
 - Tests cover `lib/` logic (Vitest) and a public-page smoke run (Playwright);
   there is no DB-backed signup → dashboard e2e flow yet.
 - Placeholder stats on the dashboard overview.
@@ -161,6 +178,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 
 - **Next.js 16** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
+- **パスワードリセット** — ハッシュ化した単回使用トークンをメールで送付(Resend)。レート制限付きで、アカウントの存在を漏らさない。メール未設定ならリンクをコンソールに出力するので clone 直後でも動く(本番では出力を拒否するので、設定漏れはログにトークンを撒かず明示的に失敗する)
 - **Prisma 7 + Postgres** — pg ドライバアダプタ経由の Rust-free クライアント。Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres。マイグレーション履歴は `prisma/migrations/` にコミット済み
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
@@ -207,6 +225,12 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 `http://localhost:3000/api/auth/callback/google`)、`AUTH_GOOGLE_ID` /
 `AUTH_GOOGLE_SECRET` を設定してください。ボタンは自動で有効になります。
 
+パスワードリセットはメールアカウント無しでもそのまま動きます。`RESEND_API_KEY` /
+`EMAIL_FROM` を未設定のままにすると、リセットリンクは送信されずサーバーログ
+(`docker compose logs -f app`)に出力されます。実際に送るなら両方を設定してください。
+なお `NODE_ENV=production` ではこのコンソール出力を拒否するため、設定漏れのまま
+デプロイしてもログに生トークンを撒かず、明示的に失敗します。
+
 ## Claude Code との開発
 
 ここが他のボイラープレートにはない部分です:
@@ -229,19 +253,23 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 
 ```
 app/
-  (auth)/                  ログイン・サインアップページ + Server Actions
+  (auth)/                  ログイン / サインアップ / パスワードリセット + Server Actions
   api/auth/[...nextauth]/  Auth.js ルートハンドラ
   dashboard/               保護されたアプリシェル: 概要、設定
   page.tsx                 ランディングページ(ヒーロー、機能、FAQ)
 components/                landing、auth、dashboard、ui プリミティブ
-lib/                       auth.ts、prisma.ts、site.ts、validations.ts、utils.ts
-prisma/schema.prisma       User / Account / Session / VerificationToken
+lib/                       auth.ts、prisma.ts、email.ts、password-reset.ts、site.ts ほか
+prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
 prisma/migrations/         マイグレーション SQL — 起動時に自動適用
 proxy.ts                   /dashboard の Cookie チェック(正式な検証は layout 側)
 .claude/                   CLAUDE.md と対になる agents、commands、settings
 ```
 
 ## 本番運用へ
+
+`APP_URL` に実際のオリジンを設定してください。`NEXT_PUBLIC_APP_URL` はビルド時に
+埋め込まれるため、ビルド済みイメージのままだとパスワードリセットのメールが
+`http://localhost:3000` を指すリンクを送ってしまい、しかも何もエラーになりません。
 
 スタックは既に Postgres。経路は2つ：
 
@@ -269,8 +297,12 @@ proxy.ts                   /dashboard の Cookie チェック(正式な検証は
 
 ## 既知の制限(意図的なスコープ)
 
-- メール認証・パスワードリセットなし(メールプロバイダが必要 — Resend /
-  Postmark の導入が自然な次の一歩)。
+- メール認証は未実装。パスワードリセットは実装済み(`lib/password-reset.ts`)で、
+  メール認証も同じ `lib/email.ts` の接合部を再利用できます。
+- セッションが JWT のため、リセット前に盗まれたセッション Cookie はリセットでは
+  失効せず、期限まで有効なままです。塞ぐには全リクエストで `passwordChangedAt` を
+  照合する必要があり、JWT を選んだ理由である「リクエスト毎の DB アクセスなし」を
+  失います。判断材料は `resetPasswordAction` のコメントに記載。
 - テストは `lib/` ロジック(Vitest)と公開ページのスモーク(Playwright)をカバー。
   DB を伴うサインアップ → ダッシュボードの e2e フローはまだ未整備。
 - ダッシュボード概要の統計はプレースホルダー。

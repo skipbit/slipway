@@ -53,6 +53,15 @@ public pages (needs `npx playwright install chromium` once).
   for Google OAuth. Email/password lives in the Credentials provider with
   bcryptjs hashes on `User.passwordHash`. Google sign-in enables itself when
   `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set (see `isGoogleConfigured`).
+- **Password reset**: `lib/password-reset.ts` mints a 256-bit token, stores
+  only its SHA-256, and redeems it exactly once (`deleteMany` is the atomic
+  gate). `lib/email.ts` sends it through Resend over plain `fetch` — and when
+  `RESEND_API_KEY`/`EMAIL_FROM` are unset it logs the link instead, so the flow
+  works on a fresh clone; that fallback throws under `NODE_ENV=production`
+  rather than scattering live tokens through a log. Both actions live in
+  `app/(auth)/actions.ts` and answer identically whether or not the account
+  exists. Email links use `externalUrl()`, not `absoluteUrl()` — see the
+  build-time/runtime gotcha below.
 - **Route protection is two-layered**: `proxy.ts` (the Next.js `proxy`
   convention, formerly `middleware.ts`) does a *cookie presence* check only
   (fast, edge-safe, no Prisma). The authoritative `auth()` check is in
@@ -110,6 +119,18 @@ public pages (needs `npx playwright install chromium` once).
   `migrations` job catches this.
 - A database created by the old `db push` workflow has no migration history —
   `migrate deploy` stops with `P3005`. Wipe it: `docker compose down -v`.
+- Don't run `npm run build` inside the compose **dev** container: its image
+  sets `NODE_ENV=development` (Dockerfile `dev` stage), and `next build` under
+  that fails prerendering `/_global-error` with a bare
+  `TypeError: Cannot read properties of null (reading 'useContext')` that looks
+  like a code bug and isn't. Use
+  `docker compose run --rm -e NODE_ENV=production app npm run build`, or the
+  `builder` stage via `docker-compose.prod.yml`.
+- `NEXT_PUBLIC_*` is substituted at **build** time, so `siteConfig.url` is
+  frozen into the image. Anything that leaves the app (password reset emails)
+  must go through `externalUrl()` in `lib/site.ts`, which reads the
+  runtime-only `APP_URL`. Get this wrong and a deployed image mails links to
+  `http://localhost:3000` with nothing failing.
 - `.env` is gitignored and must stay that way; `.env.example` documents every
   variable. Never commit real keys.
 
@@ -124,8 +145,10 @@ public pages (needs `npx playwright install chromium` once).
 
 Done: landing (hero/features/FAQ), email+Google auth, dashboard
 (overview/settings), profile update, account deletion, auth rate limiting,
+password reset (hashed single-use tokens + Resend, with a console fallback),
 Postgres migrations (prisma migrate), Vitest unit tests + a Playwright smoke
 suite.
-Not done yet (good first tasks): email verification + password reset (needs
-Resend or similar), real dashboard metrics, expanding e2e into a DB-backed
-signup → dashboard flow.
+Not done yet (good first tasks): email verification (reuse `lib/email.ts` and
+the `VerificationToken` model, which the adapter still leaves unused), real
+dashboard metrics, expanding e2e into a DB-backed signup → dashboard flow —
+which is also what `/reset-password` needs before it can be covered there.
