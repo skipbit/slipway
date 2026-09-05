@@ -3,6 +3,7 @@ import {
   RESET_TOKEN_TTL_SECONDS,
   isPasswordResetTokenValid,
 } from "@/lib/password-reset";
+import { firstParam } from "@/lib/utils";
 import { ResetPasswordForm } from "@/components/auth/password-reset-forms";
 import { AuthHeading } from "@/components/ui/auth-heading";
 import { TextLink } from "@/components/ui/text-link";
@@ -44,13 +45,9 @@ function LinkProblem({ title, body }: { title: string; body: string }) {
 export default async function ResetPasswordPage({
   searchParams,
 }: {
-  // Next hands back an array whenever the key repeats — `?token=a&token=b`.
-  // Typing this as `string` would be a lie that reaches createHash() and throws
-  // ERR_INVALID_ARG_TYPE on a public route.
   searchParams: Promise<{ token?: string | string[] }>;
 }) {
-  const { token: rawToken } = await searchParams;
-  const token = Array.isArray(rawToken) ? rawToken[0] : rawToken;
+  const token = firstParam((await searchParams).token);
 
   // A link that arrived without a token was never valid — telling that visitor
   // their link "expired" sends them to request another one their mail client

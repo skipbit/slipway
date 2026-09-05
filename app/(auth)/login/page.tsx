@@ -1,6 +1,7 @@
 import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { firstParam } from "@/lib/utils";
 import { loginAction } from "@/app/(auth)/actions";
 import { CredentialsForm } from "@/components/auth/credentials-form";
 import { AuthDivider, GoogleButton } from "@/components/auth/google-button";
@@ -14,13 +15,12 @@ export default async function LoginPage({
   searchParams,
 }: {
   // `?reset=1` is where resetPasswordAction lands after setting a new password.
-  // Array because a repeated key gives one; only its truthiness is read.
   searchParams: Promise<{ reset?: string | string[] }>;
 }) {
   const session = await auth();
   if (session?.user) redirect("/dashboard");
 
-  const { reset } = await searchParams;
+  const reset = firstParam((await searchParams).reset);
 
   return (
     <div>

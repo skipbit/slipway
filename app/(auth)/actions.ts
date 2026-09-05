@@ -1,9 +1,8 @@
 "use server";
 
-import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { signIn } from "@/lib/auth";
+import { hashPassword, signIn } from "@/lib/auth";
 import { sendPasswordResetEmail } from "@/lib/email";
 import {
   RESET_TOKEN_TTL_SECONDS,
@@ -135,7 +134,7 @@ export async function signupAction(
     return { error: "An account with this email already exists. Log in instead." };
   }
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  const passwordHash = await hashPassword(parsed.data.password);
   await prisma.user.create({
     data: { name: parsed.data.name, email, passwordHash },
   });
@@ -247,7 +246,7 @@ export async function resetPasswordAction(
   // pooled connection through it is exactly how a pool runs dry. Doing it even
   // for a token that turns out to be bad is the price, and it has the side
   // benefit of making a valid and an invalid token take the same time.
-  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  const passwordHash = await hashPassword(parsed.data.password);
 
   // Redeem and write together. Split apart, a failure on the update — the row
   // deleted in the meantime, the pool exhausted, the process recycled — would

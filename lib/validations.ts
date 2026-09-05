@@ -5,10 +5,11 @@ import { z } from "zod";
 // key — and normalising at three separate call sites is three chances for the
 // fourth one to be forgotten and let "Ada@example.com" become a second account.
 //
-// zod's z.email() also checks shape, not size. Uncapped, a 3000-character
-// address still parses and then goes on to be a Postgres index key, blowing
-// past btree's 2704-byte row limit from inside an unauthenticated form. 254 is
-// the RFC 5321 maximum, and it is checked after the trim.
+// z.email() also checks shape, not size, and an address has a size: 254 is the
+// RFC 5321 maximum, checked after the trim. Framing this as "how long an
+// address may be" rather than "what our index can hold" matters — the storage
+// bound belongs to rateLimit(), which owns the key, and stating it here once
+// cost this branch a second, separate discovery of the same class of bug.
 const emailField = z
   .string()
   .trim()
@@ -41,11 +42,13 @@ const passwordField = z
     `Password must be ${PASSWORD_MAX_LENGTH} characters or fewer.`,
   );
 
+const nameField = z
+  .string()
+  .min(1, "Enter your name.")
+  .max(100, "Name must be 100 characters or fewer.");
+
 export const signupSchema = z.object({
-  name: z
-    .string()
-    .min(1, "Enter your name.")
-    .max(100, "Name must be 100 characters or fewer."),
+  name: nameField,
   email: emailField,
   password: passwordField,
 });
@@ -67,8 +70,5 @@ export const resetPasswordSchema = z
   });
 
 export const updateProfileSchema = z.object({
-  name: z
-    .string()
-    .min(1, "Enter your name.")
-    .max(100, "Name must be 100 characters or fewer."),
+  name: nameField,
 });

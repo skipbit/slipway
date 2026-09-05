@@ -1,8 +1,12 @@
 import { CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// The boxed messages that sit inside auth forms. Kept here rather than copied
-// per form so the auth surface can't drift into two shades of red.
+// The boxed messages inside the auth forms, kept here rather than copied per
+// form so that surface can't drift into two shades of red.
+//
+// Scoped to auth on purpose: the dashboard's settings forms use unboxed inline
+// text (`text-sm text-red-600`), a different treatment rather than a stray
+// copy. Folding those in means adding a variant, not a find-and-replace.
 
 export function ErrorMessage({ children }: { children: React.ReactNode }) {
   return (

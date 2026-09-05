@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, firstParam, formatDate } from "@/lib/utils";
 
 describe("cn", () => {
   it("joins truthy class names with a space", () => {
@@ -28,5 +28,25 @@ describe("formatDate", () => {
     // Local-time construction (month is 0-indexed) keeps this deterministic
     // regardless of the runner's timezone.
     expect(formatDate(new Date(2026, 6, 14))).toBe("July 14, 2026");
+  });
+});
+
+describe("firstParam", () => {
+  // Next gives an array whenever a query key repeats; every caller used to
+  // re-derive that, and the one that didn't threw on a public route.
+  it("passes a single value straight through", () => {
+    expect(firstParam("abc")).toBe("abc");
+  });
+
+  it("takes the first of a repeated key", () => {
+    expect(firstParam(["a", "b"])).toBe("a");
+  });
+
+  it("returns undefined for a missing parameter", () => {
+    expect(firstParam(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined for an empty array rather than a hole", () => {
+    expect(firstParam([])).toBeUndefined();
   });
 });
