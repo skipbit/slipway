@@ -1,0 +1,2 @@
+// Stands in for the `server-only` marker under Vitest; see vitest.config.ts.
+export {};

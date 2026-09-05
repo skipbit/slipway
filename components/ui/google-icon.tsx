@@ -1,10 +1,12 @@
 /**
- * Its own module, with no imports.
+ * Its own module in `components/ui/`, with no imports.
  *
- * It used to live in google-button.tsx, which is a server component that reads
+ * It used to live in `components/auth/google-button.tsx`, which reads
  * `isGoogleConfigured` from lib/auth — so a client component importing the icon
- * from there dragged the whole Auth.js and Prisma graph into the browser
- * bundle, and the build failed on `pg` reaching for `dns`.
+ * from there dragged the whole Auth.js and Prisma graph into the browser bundle
+ * and the build failed on `pg` reaching for `dns`. `components/auth/` is for
+ * things coupled to Auth.js; an icon is not one, and that distinction is
+ * exactly what the failure crossed.
  */
 export function GoogleIcon() {
   return (

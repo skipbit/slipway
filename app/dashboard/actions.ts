@@ -98,23 +98,23 @@ export async function connectGoogleAction(): Promise<void> {
 }
 
 /**
- * Detach a provider.
+ * Detach Google.
+ *
+ * Named for the provider, like its opposite number, rather than taking one as a
+ * form field: the UI renders exactly one row, so a parameter would be an
+ * abstraction with a single caller and a validation branch nothing can reach.
+ * A second provider parameterises both sides at once.
  *
  * The rule about not leaving an account without a way in is `canDisconnect`, so
  * that this and the settings page — which uses it to stop offering a button
  * that can only fail — cannot come to different conclusions.
  */
-export async function disconnectOAuthAccountAction(
+export async function disconnectGoogleAction(
   _prev: DashboardFormState,
-  formData: FormData,
+  _formData: FormData,
 ): Promise<DashboardFormState> {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
-
-  const provider = formData.get("provider");
-  if (typeof provider !== "string" || provider.length === 0) {
-    return { error: "Unknown provider.", success: null };
-  }
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -122,7 +122,7 @@ export async function disconnectOAuthAccountAction(
   });
   if (!user) redirect("/login");
 
-  if (!canDisconnect(user, provider)) {
+  if (!canDisconnect(user, "google")) {
     return {
       error:
         "That is your only way to sign in — disconnecting it would lock you out.",
@@ -134,7 +134,7 @@ export async function disconnectOAuthAccountAction(
   // which this action does not know, and scoping by userId is what keeps one
   // user from detaching another's.
   await prisma.account.deleteMany({
-    where: { userId: session.user.id, provider },
+    where: { userId: session.user.id, provider: "google" },
   });
 
   revalidatePath("/dashboard/settings");

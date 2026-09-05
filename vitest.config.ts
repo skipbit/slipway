@@ -19,6 +19,15 @@ export default defineConfig({
   // Mirror the `@/*` path alias from tsconfig.json so imports resolve the same
   // way under Vitest as they do in the Next.js build.
   resolve: {
-    alias: [{ find: /^@\//, replacement: `${root}/` }],
+    alias: [
+      { find: /^@\//, replacement: `${root}/` },
+      // `server-only` marks lib/auth.ts and lib/prisma.ts as off-limits to the
+      // browser. It works by resolving to a module that throws unless the
+      // `react-server` export condition is set, which Vitest does not set — so
+      // without this a unit test importing either of them fails on the marker
+      // rather than on anything it was testing. Stubbing it here is narrower
+      // than turning that condition on for the whole run.
+      { find: /^server-only$/, replacement: `${root}/test/server-only-stub.ts` },
+    ],
   },
 });

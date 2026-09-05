@@ -1,7 +1,7 @@
 import { googleSignInAction } from "@/app/(auth)/actions";
 import { isGoogleConfigured } from "@/lib/auth";
 import { GOOGLE_NOT_CONFIGURED } from "@/lib/site";
-import { GoogleIcon } from "@/components/auth/google-icon";
+import { GoogleIcon } from "@/components/ui/google-icon";
 
 /**
  * Server component: renders a working Google sign-in button when

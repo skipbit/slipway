@@ -82,7 +82,11 @@ public pages (needs `npx playwright install chromium` once).
   either from a `"use client"` file is a build error that names the boundary.
   Without the marker the same mistake surfaced as
   `Module not found: Can't resolve 'dns'` from inside `pg` — which is why
-  `components/auth/google-icon.tsx` exists apart from `google-button.tsx`.
+  `components/ui/google-icon.tsx` sits apart from `components/auth/google-button.tsx`
+  — `components/auth/` is for things coupled to Auth.js, and an icon is not one.
+  Vitest does not set the `react-server` condition, so `vitest.config.ts` stubs
+  the marker; without that a unit test importing either module fails on the
+  marker rather than on what it was testing.
 - **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot

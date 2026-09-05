@@ -3,14 +3,12 @@
 import { useActionState } from "react";
 import {
   connectGoogleAction,
-  disconnectOAuthAccountAction,
+  disconnectGoogleAction,
   type DashboardFormState,
 } from "@/app/dashboard/actions";
-import { GoogleIcon } from "@/components/auth/google-icon";
+import { GoogleIcon } from "@/components/ui/google-icon";
 import { Button } from "@/components/ui/button";
 import { FormMessages } from "@/components/ui/message";
-
-const initialState: DashboardFormState = { error: null, success: null };
 
 /**
  * Connect or disconnect Google from inside an authenticated session — see
@@ -31,7 +29,7 @@ export function ConnectedAccounts({
   const [state, disconnect, disconnecting] = useActionState<
     DashboardFormState,
     FormData
-  >(disconnectOAuthAccountAction, initialState);
+  >(disconnectGoogleAction, { error: null, success: null });
 
   return (
     <div className="space-y-4">
@@ -41,7 +39,6 @@ export function ConnectedAccounts({
 
         {connected ? (
           <form action={disconnect}>
-            <input type="hidden" name="provider" value="google" />
             <Button
               type="submit"
               variant="secondary"
