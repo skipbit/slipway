@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canDisconnect,
   providerVouchedForEmail,
+  providerVouchedForThisAccount,
   signInMethods,
 } from "@/lib/auth-policy";
 
@@ -90,5 +91,33 @@ describe("providerVouchedForEmail", () => {
       providerVouchedForEmail({ type: "credentials" }, { email_verified: false }),
     ).toBe(true);
     expect(providerVouchedForEmail(null, null)).toBe(true);
+  });
+});
+
+describe("providerVouchedForThisAccount", () => {
+  it("accepts the address the provider actually proved", () => {
+    expect(
+      providerVouchedForThisAccount("ada@example.com", "ada@example.com"),
+    ).toBe(true);
+  });
+
+  it("normalises case and whitespace", () => {
+    expect(
+      providerVouchedForThisAccount("ada@example.com", " Ada@Example.COM "),
+    ).toBe(true);
+  });
+
+  it("refuses a different address", () => {
+    // The whole attack: sign up under someone else's address, connect your own
+    // Google, and their address would otherwise read "Confirmed" on your row.
+    expect(
+      providerVouchedForThisAccount("victim@example.com", "attacker@gmail.com"),
+    ).toBe(false);
+  });
+
+  it("refuses when either side is missing", () => {
+    expect(providerVouchedForThisAccount(null, "ada@example.com")).toBe(false);
+    expect(providerVouchedForThisAccount("ada@example.com", null)).toBe(false);
+    expect(providerVouchedForThisAccount("", "")).toBe(false);
   });
 });

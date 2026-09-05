@@ -1,7 +1,7 @@
 import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { authErrorMessage } from "@/lib/auth-errors";
+import { authErrorMessage, isConnectError } from "@/lib/auth-errors";
 import { firstParam } from "@/lib/utils";
 import { loginAction } from "@/app/(auth)/actions";
 import { CredentialsForm } from "@/components/auth/credentials-form";
@@ -36,9 +36,12 @@ export default async function LoginPage({
     // code back to where they started; the plain redirect below would drop it,
     // which is how the one failure this app actually produces ended up
     // invisible to the only people who can produce it.
+    // Only codes the connect flow can produce. Forwarding anything else would
+    // greet a signed-in visitor who followed a stale or crafted link with an
+    // explanation of something they never did.
     redirect(
-      authError
-        ? `/dashboard/settings?error=${encodeURIComponent(authError)}`
+      isConnectError(authError)
+        ? `/dashboard/settings?error=${encodeURIComponent(authError!)}`
         : "/dashboard",
     );
   }

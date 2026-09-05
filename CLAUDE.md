@@ -73,11 +73,16 @@ public pages (needs `npx playwright install chromium` once).
   an ordinary `signIn("google")` from a page that already required a session,
   and Auth.js links onto the session's user without going near the
   address-matching branch. The rules behind both sides live in
-  `lib/auth-policy.ts` (`canDisconnect` refuses to remove a user's last sign-in
-  method; the settings page uses it to disable the button rather than offer one
-  that only fails). Don't turn the flag back on to "fix" a linking complaint —
-  eslint refuses it repo-wide, and the provider comment in `lib/auth.ts` says
-  what it costs.
+  `lib/auth-policy.ts`: `canDisconnect` refuses to remove a user's last sign-in
+  method (the settings page uses it to disable the button rather than offer one
+  that only fails), and `providerVouchedForThisAccount` is why linking only
+  marks the address confirmed when the provider's address IS the account's —
+  connecting somebody else's Google says nothing about the row it attaches to.
+  Don't turn the flag back on to "fix" a linking complaint — eslint refuses it
+  repo-wide, and the provider comment in `lib/auth.ts` says what it costs.
+  `OAuthAccountNotLinked` reaches `/login` through `pages.signIn`, not
+  `pages.error`; setting the latter would route Configuration/MissingSecret to a
+  page that rethrows them.
 - **`lib/auth.ts` and `lib/prisma.ts` are marked `server-only`**: importing
   either from a `"use client"` file is a build error that names the boundary.
   Without the marker the same mistake surfaced as

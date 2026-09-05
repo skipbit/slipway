@@ -8,7 +8,10 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
-import { providerVouchedForEmail } from "@/lib/auth-policy";
+import {
+  providerVouchedForEmail,
+  providerVouchedForThisAccount,
+} from "@/lib/auth-policy";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validations";
 
@@ -24,10 +27,13 @@ import { loginSchema } from "@/lib/validations";
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
-  // Errors land on /login rather than Auth.js's own page, so the one that
-  // actually happens — OAuthAccountNotLinked, when a Google address matches an
-  // existing account — can be explained in the app's own words.
-  pages: { signIn: "/login", error: "/login" },
+  // OAuthAccountNotLinked is a SignInError, so Auth.js already sends it to
+  // `pages.signIn` — /login explains it there. `pages.error` is deliberately
+  // NOT set: it routes the other kind (Configuration, MissingSecret) and would
+  // send those to a page that itself calls auth() and would rethrow them,
+  // turning Auth.js's "there is a problem with the server configuration" page
+  // into a 500.
+  pages: { signIn: "/login" },
   trustHost: true,
   providers: [
     Google({
@@ -90,17 +96,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * no room for `emailVerified`, and this event's `profile` is the mapped
      * user, not the raw OIDC claims.
      *
-     * Those two are the only ways here, which is what makes trusting the
-     * provider sound — in both, the person holds the account AND the provider
-     * vouches for the address. See the note on the Google provider above for
-     * the third way that used to exist.
+     * Those two are the only ways here — see the note on the Google provider
+     * above for the third that used to exist — but holding the account is only
+     * half of it. The provider vouches for ITS address, and on the
+     * connect-from-Settings path that need not be the row's: hence
+     * `providerVouchedForThisAccount`.
      *
      * `emailVerified: null` stays: an existing timestamp records when the
      * address was FIRST proved and should not move. Whether the provider
-     * vouched at all is checked in the `signIn` callback below, which is where
+     * vouched for anything at all is checked in `signIn` below, which is where
      * the raw profile lives.
      */
-    async linkAccount({ user }) {
+    async linkAccount({ user, profile }) {
+      if (!providerVouchedForThisAccount(user.email, profile.email)) return;
+
       // `User.id` is optional on Auth.js's type, and Prisma DROPS an undefined
       // filter field rather than matching nothing — so an id-less user here
       // would turn this into "stamp emailVerified on every passwordless
@@ -143,6 +152,15 @@ const BCRYPT_COST = 10;
 
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_COST);
+}
+
+/**
+ * One place to start a Google sign-in, so an option that belongs on both entry
+ * points — `prompt: "select_account"`, say, which matters most when connecting
+ * a second account — cannot end up on only one of them.
+ */
+export function signInWithGoogle(redirectTo: string): Promise<never> {
+  return signIn("google", { redirectTo }) as Promise<never>;
 }
 
 export function isGoogleConfigured(): boolean {

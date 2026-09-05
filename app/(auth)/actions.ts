@@ -2,7 +2,13 @@
 
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { auth, hashPassword, signIn, signOut } from "@/lib/auth";
+import {
+  auth,
+  hashPassword,
+  signIn,
+  signInWithGoogle,
+  signOut,
+} from "@/lib/auth";
 import { emailDeliveryUnavailable } from "@/lib/env";
 import {
   EMAIL_VERIFICATION_LINK,
@@ -381,5 +387,5 @@ export async function verifyEmailAction(
 }
 
 export async function googleSignInAction() {
-  await signIn("google", { redirectTo: "/dashboard" });
+  await signInWithGoogle("/dashboard");
 }

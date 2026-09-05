@@ -29,14 +29,26 @@ export function authErrorMessage(code: string | undefined): string {
 }
 
 /**
- * The same failure worded for someone who was already signed in and attaching
- * a provider from Settings, where "sign in" advice makes no sense.
+ * The same failures worded for someone who was already signed in and attaching
+ * a provider from Settings, where any "sign in" advice makes no sense.
+ *
+ * Every code the connect flow can produce needs an entry here, not just the
+ * common one — a forgotten code falls through to sign-in wording aimed at
+ * somebody who is already signed in.
  */
+const CONNECT_ERRORS: Record<string, string> = {
+  OAuthAccountNotLinked:
+    "That Google account is already connected to another user. Disconnect it there first, or use a different one.",
+  AccessDenied:
+    "Google did not confirm that address, so we cannot attach it to your account.",
+};
+
 export function connectErrorMessage(code: string | undefined): string {
-  if (code === "OAuthAccountNotLinked") {
-    // Same code, different situation: this visitor already has a session, so
-    // the collision is a Google account that belongs to somebody else.
-    return "That Google account is already connected to another user. Disconnect it there first, or use a different one.";
-  }
-  return authErrorMessage(code);
+  if (code && Object.hasOwn(CONNECT_ERRORS, code)) return CONNECT_ERRORS[code]!;
+  return DEFAULT_MESSAGE;
+}
+
+/** The codes the connect flow can actually produce. */
+export function isConnectError(code: string | undefined): boolean {
+  return Boolean(code && Object.hasOwn(CONNECT_ERRORS, code));
 }

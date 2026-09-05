@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { auth, signIn } from "@/lib/auth";
+import { auth, signInWithGoogle } from "@/lib/auth";
 import { EMAIL_VERIFICATION_LINK } from "@/lib/email-token";
 import { emailDeliveryUnavailable } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
@@ -92,9 +92,7 @@ export async function connectGoogleAction(): Promise<void> {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  await signIn("google", {
-    redirectTo: "/dashboard/settings?connected=google",
-  });
+  await signInWithGoogle("/dashboard/settings?connected=google");
 }
 
 /**

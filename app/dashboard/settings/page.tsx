@@ -4,7 +4,7 @@ import { auth, isGoogleConfigured } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { connectErrorMessage } from "@/lib/auth-errors";
 import { GOOGLE_NOT_CONFIGURED } from "@/lib/site";
-import { canDisconnect } from "@/lib/auth-policy";
+import { canDisconnect, signInMethods } from "@/lib/auth-policy";
 import { cn, firstParam, formatDate } from "@/lib/utils";
 import {
   DeleteAccountForm,
@@ -32,6 +32,7 @@ export default async function SettingsPage({
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
+  const googleConfigured = isGoogleConfigured();
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
@@ -45,6 +46,8 @@ export default async function SettingsPage({
     },
   });
   if (!user) redirect("/login");
+
+  const googleConnected = user.accounts.some((a) => a.provider === "google");
 
   return (
     <div className="space-y-8">
@@ -89,9 +92,12 @@ export default async function SettingsPage({
             </dd>
           </div>
           <div className="flex gap-4">
-            <dt className="w-36 flex-none text-slate-500">Password</dt>
+            <dt className="w-36 flex-none text-slate-500">Sign-in methods</dt>
+            {/* Every method, not just the two this page has controls for — a
+                provider added later would otherwise be invisible here while
+                still counting towards whether Google can be disconnected. */}
             <dd className="text-slate-900">
-              {user.passwordHash ? "Set" : "Not set"}
+              {signInMethods(user).join(", ") || "none"}
             </dd>
           </div>
           <div className="flex gap-4">
@@ -108,7 +114,7 @@ export default async function SettingsPage({
         <p className="mt-1 text-sm text-slate-500">
           Sign in with a provider as well as, or instead of, your password.
         </p>
-        {justConnected && (
+        {justConnected && googleConnected && (
           <SuccessMessage className="mt-4">Google connected.</SuccessMessage>
         )}
         {connectError && (
@@ -118,15 +124,19 @@ export default async function SettingsPage({
         )}
 
         <div className="mt-6">
-          {isGoogleConfigured() ? (
+          {googleConfigured || googleConnected ? (
+            // Rendered whenever there is something to do — including when the
+            // credentials have been removed but an account is still attached,
+            // which otherwise strands that link with no way to detach it.
             <ConnectedAccounts
-              connected={user.accounts.some((a) => a.provider === "google")}
+              connected={googleConnected}
               removable={canDisconnect(user, "google")}
+              canConnect={googleConfigured}
             />
           ) : (
-            // Rendered here rather than inside the client component so an
-            // install without Google credentials — the boilerplate's default —
-            // doesn't hydrate one to show a single static line.
+            // Nothing to do and nothing attached: a static line, on the server,
+            // rather than hydrating a component to show it. This is the
+            // boilerplate's default state.
             <p className="text-sm text-slate-400" title={GOOGLE_NOT_CONFIGURED}>
               Google — not configured
             </p>

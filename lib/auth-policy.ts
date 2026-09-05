@@ -56,3 +56,26 @@ export function providerVouchedForEmail(
   }
   return profile?.email_verified !== false;
 }
+
+/**
+ * Did the provider vouch for THIS account's address?
+ *
+ * `linkAccount` fires with the session's user and the provider's profile, and
+ * on the connect-from-Settings path those are two different things. Google
+ * proving `attacker@gmail.com` says nothing about the `victim@example.com` on
+ * the row it is being attached to — and stamping that row confirmed on the
+ * strength of it is the takeover this flow exists to close: sign up under
+ * someone else's address, connect your own Google, and their address reads
+ * "Confirmed" on your account.
+ *
+ * Compared case-insensitively and trimmed, because `emailField` normalises what
+ * we store but a provider profile arrives however the provider sends it.
+ */
+export function providerVouchedForThisAccount(
+  accountEmail: string | null | undefined,
+  profileEmail: string | null | undefined,
+): boolean {
+  const account = accountEmail?.trim().toLowerCase();
+  const vouched = profileEmail?.trim().toLowerCase();
+  return Boolean(account && vouched && account === vouched);
+}
