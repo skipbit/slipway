@@ -1,11 +1,11 @@
 import { type Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { loginAction } from "@/app/(auth)/actions";
 import { CredentialsForm } from "@/components/auth/credentials-form";
 import { AuthDivider, GoogleButton } from "@/components/auth/google-button";
+import { SuccessMessage } from "@/components/ui/message";
 
 export const metadata: Metadata = { title: "Log in" };
 
@@ -31,13 +31,9 @@ export default async function LoginPage({
       </p>
 
       {reset && (
-        <p
-          role="status"
-          className="mt-6 flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
-        >
-          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none" />
+        <SuccessMessage className="mt-6">
           Password updated. Log in with your new one.
-        </p>
+        </SuccessMessage>
       )}
 
       <div className="mt-8">

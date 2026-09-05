@@ -25,7 +25,7 @@ get your product into the water fast.
 
 - **Next.js 16** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
-- **Password reset** — single-use hashed tokens over email (Resend), rate limited and safe against account enumeration; with no mail credentials the link is logged to the console so the flow works on a fresh clone (refused in production, so a misconfigured deploy fails loudly instead of leaking tokens into a log)
+- **Password reset** — single-use hashed tokens over email (Resend), rate limited and safe against account enumeration; with no mail credentials the link is logged to the console so the flow works on a fresh clone (refused under `NODE_ENV=production`, so a misconfigured deploy leaves a clear server-side error instead of scattering live tokens through a log)
 - **Prisma 7 + Postgres** — Rust-free client via the pg driver adapter; one-command local stack via Docker Compose; the same containerized app + Postgres in production; versioned migrations committed under `prisma/migrations/`
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
@@ -75,9 +75,15 @@ To enable Google sign-in later, create OAuth credentials in the
 Password reset works out of the box with no email account: leave
 `RESEND_API_KEY` / `EMAIL_FROM` unset and the reset link is printed to the
 server log (`docker compose logs -f app`) instead of being sent. Set both to
-send real mail — and note the console fallback is refused when
-`NODE_ENV=production`, so a deploy that forgets them fails loudly rather than
-writing live tokens to your log aggregator.
+send real mail. Set **both** — a key without a sender switches the console
+fallback off and then fails at the provider, which the user never sees.
+
+Under `NODE_ENV=production` the console fallback is refused outright. Be clear
+on what that does and doesn't do: it stops live tokens reaching your log
+aggregator and records the reason server-side, but the user still sees the same
+neutral "a reset link is on its way" — `requestPasswordResetAction` swallows
+every send failure on purpose, because which addresses fail is itself a signal.
+Check your logs, or assert on the variables at deploy time.
 
 ## Working with Claude Code
 
@@ -178,7 +184,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 
 - **Next.js 16** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
-- **パスワードリセット** — ハッシュ化した単回使用トークンをメールで送付(Resend)。レート制限付きで、アカウントの存在を漏らさない。メール未設定ならリンクをコンソールに出力するので clone 直後でも動く(本番では出力を拒否するので、設定漏れはログにトークンを撒かず明示的に失敗する)
+- **パスワードリセット** — ハッシュ化した単回使用トークンをメールで送付(Resend)。レート制限付きで、アカウントの存在を漏らさない。メール未設定ならリンクをコンソールに出力するので clone 直後でも動く(`NODE_ENV=production` では出力を拒否するので、設定漏れがログに生トークンを撒かず、サーバー側に明確なエラーが残る)
 - **Prisma 7 + Postgres** — pg ドライバアダプタ経由の Rust-free クライアント。Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres。マイグレーション履歴は `prisma/migrations/` にコミット済み
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
@@ -228,8 +234,14 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 パスワードリセットはメールアカウント無しでもそのまま動きます。`RESEND_API_KEY` /
 `EMAIL_FROM` を未設定のままにすると、リセットリンクは送信されずサーバーログ
 (`docker compose logs -f app`)に出力されます。実際に送るなら両方を設定してください。
-なお `NODE_ENV=production` ではこのコンソール出力を拒否するため、設定漏れのまま
-デプロイしてもログに生トークンを撒かず、明示的に失敗します。
+設定するなら**両方**です。キーだけ入れて送信元が空だとコンソール出力が止まった上で
+プロバイダ側で失敗し、ユーザーには何も見えません。
+
+`NODE_ENV=production` ではコンソール出力を拒否します。ただし効果の範囲は正確に
+把握してください — ログに生トークンが流れるのを止め、サーバー側に理由を残しますが、
+ユーザーには従来どおり中立の「リセットリンクを送信しました」が表示されます。
+`requestPasswordResetAction` は送信失敗を意図的に握り潰すためで(どのアドレスで
+失敗したかが情報になるため)、検知はログか、デプロイ時の環境変数チェックで行います。
 
 ## Claude Code との開発
 

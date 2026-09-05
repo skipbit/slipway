@@ -54,42 +54,53 @@ export async function createPasswordResetToken(
 }
 
 /**
+ * Anything that can run a raw query — the client, or a transaction handle.
+ * Lets the caller pull the redeem into the same transaction as the password
+ * write, so a failure there puts the token back.
+ */
+type RawClient = { $queryRaw: typeof prisma.$queryRaw };
+
+/**
  * Is this token currently good? Used to decide whether /reset-password renders
  * the form or the "link expired" state. Read-only — it does not consume.
+ *
+ * Expiry is compared with `now()` in SQL rather than `Date.now()` in JS: the
+ * column is timestamptz precisely so the answer does not depend on whose clock
+ * is asked, and on a multi-instance deploy that is not a hypothetical.
  */
 export async function isPasswordResetTokenValid(
   token: string,
 ): Promise<boolean> {
-  const row = await prisma.passwordResetToken.findUnique({
-    where: { tokenHash: hashResetToken(token) },
-  });
-  return Boolean(row && row.expiresAt.getTime() >= Date.now());
+  const rows = await prisma.$queryRaw<{ valid: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM "PasswordResetToken"
+      WHERE "tokenHash" = ${hashResetToken(token)}
+        AND "expiresAt" > now()
+    ) AS valid
+  `;
+  return rows[0]?.valid ?? false;
 }
 
 /**
  * Redeem a token exactly once and return the user it belongs to (null if it is
  * unknown, expired, or already spent).
  *
- * The `deleteMany` is the atomic gate: a single DELETE statement, so of two
- * concurrent submissions of the same link exactly one sees `count === 1` and
- * the loser is turned away even though its earlier read found the row.
+ * One statement does all three jobs: the WHERE is the expiry check, the DELETE
+ * is the single-use gate, and RETURNING hands back the owner. Two concurrent
+ * submissions of the same link cannot both match — the loser deletes nothing
+ * and gets an empty result — and there is no read-then-write window to lose.
  */
 export async function consumePasswordResetToken(
   token: string,
+  client: RawClient = prisma,
 ): Promise<string | null> {
-  const tokenHash = hashResetToken(token);
-
-  const row = await prisma.passwordResetToken.findUnique({
-    where: { tokenHash },
-  });
-  if (!row || row.expiresAt.getTime() < Date.now()) return null;
-
-  const { count } = await prisma.passwordResetToken.deleteMany({
-    where: { tokenHash },
-  });
-  if (count !== 1) return null;
-
-  return row.userId;
+  const rows = await client.$queryRaw<{ userId: string }[]>`
+    DELETE FROM "PasswordResetToken"
+    WHERE "tokenHash" = ${hashResetToken(token)}
+      AND "expiresAt" > now()
+    RETURNING "userId"
+  `;
+  return rows[0]?.userId ?? null;
 }
 
 /**

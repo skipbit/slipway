@@ -10,15 +10,20 @@ import {
 
 // Only the Prisma boundary is mocked — the crypto is real, because "the token
 // we hand out is not the value we store" is exactly the property worth testing.
+//
+// NOTE: expiry now lives in SQL (`"expiresAt" > now()`), so a mocked $queryRaw
+// cannot exercise it — same limitation as the fixed-window reset in
+// rate-limit.test.ts. What is covered here is the hashing, the shape of the
+// statements, and how their results are interpreted.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $queryRaw: vi.fn(),
     // The real $transaction takes the already-built operations and commits them
     // together; awaiting them in order is a faithful enough stand-in to assert
     // what was sent and in which order.
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     passwordResetToken: {
       create: vi.fn(),
-      findUnique: vi.fn(),
       deleteMany: vi.fn(),
     },
   },
@@ -35,12 +40,17 @@ import {
   isPasswordResetTokenValid,
 } from "@/lib/password-reset";
 
+const queryRawMock = prisma.$queryRaw as unknown as Mock;
 const transactionMock = prisma.$transaction as unknown as Mock;
 const createMock = prisma.passwordResetToken.create as unknown as Mock;
-const findUniqueMock = prisma.passwordResetToken.findUnique as unknown as Mock;
 const deleteManyMock = prisma.passwordResetToken.deleteMany as unknown as Mock;
 
 const now = new Date("2026-07-14T00:00:00.000Z");
+
+/** The interpolated values of a tagged-template $queryRaw call. */
+function queryValues(call: unknown[]): unknown[] {
+  return call.slice(1);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -125,74 +135,57 @@ describe("createPasswordResetToken", () => {
 });
 
 describe("isPasswordResetTokenValid", () => {
-  it("looks the token up by its hash", async () => {
-    findUniqueMock.mockResolvedValue(null);
+  it("asks the database about the hash, never the token", async () => {
+    queryRawMock.mockResolvedValue([{ valid: false }]);
+
     await isPasswordResetTokenValid("plain-token");
 
-    expect(findUniqueMock).toHaveBeenCalledWith({
-      where: { tokenHash: hashResetToken("plain-token") },
-    });
+    const values = queryValues(queryRawMock.mock.calls[0]!);
+    expect(values).toContain(hashResetToken("plain-token"));
+    expect(values).not.toContain("plain-token");
   });
 
-  it("accepts a token that has not expired", async () => {
-    findUniqueMock.mockResolvedValue({
-      userId: "user_1",
-      expiresAt: new Date(now.getTime() + 60_000),
-    });
+  it("accepts a token the database vouches for", async () => {
+    queryRawMock.mockResolvedValue([{ valid: true }]);
     expect(await isPasswordResetTokenValid("t")).toBe(true);
   });
 
-  it("rejects an expired token", async () => {
-    findUniqueMock.mockResolvedValue({
-      userId: "user_1",
-      expiresAt: new Date(now.getTime() - 1),
-    });
+  it("rejects one it does not", async () => {
+    queryRawMock.mockResolvedValue([{ valid: false }]);
     expect(await isPasswordResetTokenValid("t")).toBe(false);
   });
 
-  it("rejects an unknown token", async () => {
-    findUniqueMock.mockResolvedValue(null);
+  it("rejects rather than throwing if the query comes back empty", async () => {
+    queryRawMock.mockResolvedValue([]);
     expect(await isPasswordResetTokenValid("t")).toBe(false);
   });
 });
 
 describe("consumePasswordResetToken", () => {
-  it("returns the owner and deletes the row", async () => {
-    findUniqueMock.mockResolvedValue({
-      userId: "user_1",
-      expiresAt: new Date(now.getTime() + 60_000),
-    });
+  it("returns the owner the DELETE handed back", async () => {
+    queryRawMock.mockResolvedValue([{ userId: "user_1" }]);
 
     expect(await consumePasswordResetToken("t")).toBe("user_1");
-    expect(deleteManyMock).toHaveBeenCalledWith({
-      where: { tokenHash: hashResetToken("t") },
-    });
+    expect(queryValues(queryRawMock.mock.calls[0]!)).toContain(
+      hashResetToken("t"),
+    );
   });
 
-  it("refuses an expired token without touching the row", async () => {
-    findUniqueMock.mockResolvedValue({
-      userId: "user_1",
-      expiresAt: new Date(now.getTime() - 1),
-    });
-
-    expect(await consumePasswordResetToken("t")).toBeNull();
-    expect(deleteManyMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses an unknown token", async () => {
-    findUniqueMock.mockResolvedValue(null);
+  it("returns null when the statement matched nothing", async () => {
+    // Unknown, already spent, or past `now()` — the caller must not be able to
+    // tell these apart, and none of them yield a user.
+    queryRawMock.mockResolvedValue([]);
     expect(await consumePasswordResetToken("t")).toBeNull();
   });
 
-  it("refuses the loser of a concurrent redeem, which deletes nothing", async () => {
-    findUniqueMock.mockResolvedValue({
-      userId: "user_1",
-      expiresAt: new Date(now.getTime() + 60_000),
-    });
-    // The other request's DELETE already removed the row.
-    deleteManyMock.mockResolvedValue({ count: 0 });
+  it("runs on the transaction handle it is given", async () => {
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ userId: "user_1" }]) };
 
-    expect(await consumePasswordResetToken("t")).toBeNull();
+    expect(await consumePasswordResetToken("t", tx)).toBe("user_1");
+    // Otherwise the redeem commits on its own and the password write can still
+    // fail behind it, burning the link for nothing.
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(queryRawMock).not.toHaveBeenCalled();
   });
 });
 

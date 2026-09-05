@@ -6,6 +6,7 @@ import { AuthError } from "next-auth";
 import { signIn } from "@/lib/auth";
 import { sendPasswordResetEmail } from "@/lib/email";
 import {
+  RESET_TOKEN_TTL_SECONDS,
   consumePasswordResetToken,
   createPasswordResetToken,
 } from "@/lib/password-reset";
@@ -200,6 +201,7 @@ export async function requestPasswordResetAction(
       await sendPasswordResetEmail(
         user.email,
         externalUrl(`/reset-password?token=${encodeURIComponent(token)}`),
+        RESET_TOKEN_TTL_SECONDS,
       );
     } catch (err) {
       // Swallowed on purpose: which addresses fail to send is itself a signal,
@@ -242,16 +244,29 @@ export async function resetPasswordAction(
   );
   if (!limit.success) return resetTooManyAttempts(limit.retryAfterSeconds);
 
-  const userId = await consumePasswordResetToken(parsed.data.token);
+  // Hash before the transaction opens: bcrypt costs ~100ms and holding a
+  // pooled connection through it is exactly how a pool runs dry. Doing it even
+  // for a token that turns out to be bad is the price, and it has the side
+  // benefit of making a valid and an invalid token take the same time.
+  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+
+  // Redeem and write together. Split apart, a failure on the update — the row
+  // deleted in the meantime, the pool exhausted, the process recycled — would
+  // leave the user with an unchanged password AND a spent link, sent back to a
+  // /forgot-password bucket they have already paid into.
+  const userId = await prisma.$transaction(async (tx) => {
+    const id = await consumePasswordResetToken(parsed.data.token, tx);
+    if (!id) return null;
+    await tx.user.update({ where: { id }, data: { passwordHash } });
+    return id;
+  });
+
   if (!userId) {
     return {
       error: "This reset link is invalid or has expired. Request a new one.",
       success: null,
     };
   }
-
-  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
 
   // redirect() throws — it must stay outside any try/catch that would swallow
   // it (same reason as the signIn calls above). Landing on /login rather than

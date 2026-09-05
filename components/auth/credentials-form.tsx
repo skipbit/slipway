@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { type AuthFormState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { ErrorMessage } from "@/components/ui/message";
 
 interface CredentialsFormProps {
   mode: "login" | "signup";
@@ -74,14 +75,7 @@ export function CredentialsForm({ mode, action }: CredentialsFormProps) {
         </div>
       </div>
 
-      {state.error && (
-        <p
-          role="alert"
-          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
-          {state.error}
-        </p>
-      )}
+      {state.error && <ErrorMessage>{state.error}</ErrorMessage>}
 
       <Button type="submit" disabled={pending} className="w-full">
         {pending && <Loader2 className="h-4 w-4 animate-spin" />}

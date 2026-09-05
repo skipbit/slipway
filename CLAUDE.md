@@ -58,9 +58,11 @@ public pages (needs `npx playwright install chromium` once).
   gate). `lib/email.ts` sends it through Resend over plain `fetch` — and when
   `RESEND_API_KEY`/`EMAIL_FROM` are unset it logs the link instead, so the flow
   works on a fresh clone; that fallback throws under `NODE_ENV=production`
-  rather than scattering live tokens through a log. Both actions live in
-  `app/(auth)/actions.ts` and answer identically whether or not the account
-  exists. Email links use `externalUrl()`, not `absoluteUrl()` — see the
+  rather than scattering live tokens through a log. The throw is caught by
+  `requestPasswordResetAction` like any send failure, so it reaches the server
+  log, not the user — enumeration safety outranks feedback here. Both actions
+  live in `app/(auth)/actions.ts` and answer identically whether or not the
+  account exists. Email links go through `externalUrl()` — see the
   build-time/runtime gotcha below.
 - **Route protection is two-layered**: `proxy.ts` (the Next.js `proxy`
   convention, formerly `middleware.ts`) does a *cookie presence* check only
@@ -87,7 +89,11 @@ public pages (needs `npx playwright install chromium` once).
   (forms with `useActionState`, `usePathname` nav).
 - Mutations are Server Actions in a colocated `actions.ts` with `"use server"`
   at the top. Every action that touches user data must call `auth()` and
-  scope Prisma queries by `session.user.id`.
+  scope Prisma queries by `session.user.id`. The one deliberate exception is
+  account recovery: `resetPasswordAction` has no session by definition, so the
+  emailed token *is* the authorisation and the user id comes from redeeming it
+  — never from the form. Any new exception needs the same shape: a single-use
+  secret the server minted, and an id derived from it.
 - Validate all form input with zod schemas in `lib/validations.ts` before use.
 - UI: Tailwind v4 utility classes, slate/indigo palette, primitives in
   `components/ui/`. `cn()` from `lib/utils.ts` for conditional classes.
@@ -130,7 +136,10 @@ public pages (needs `npx playwright install chromium` once).
   frozen into the image. Anything that leaves the app (password reset emails)
   must go through `externalUrl()` in `lib/site.ts`, which reads the
   runtime-only `APP_URL`. Get this wrong and a deployed image mails links to
-  `http://localhost:3000` with nothing failing.
+  `http://localhost:3000` with nothing failing. There is deliberately no second
+  helper reading the build-time value — don't add one back. Note `externalUrl`
+  falls back with `||`, not `??`: `.env.example` ships `APP_URL=""`, and an
+  empty string is non-nullish.
 - `.env` is gitignored and must stay that way; `.env.example` documents every
   variable. Never commit real keys.
 

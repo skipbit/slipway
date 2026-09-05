@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   requestPasswordResetAction,
   resetPasswordAction,
@@ -10,19 +10,9 @@ import {
 } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { ErrorMessage, SuccessMessage } from "@/components/ui/message";
 
 const initialState: PasswordResetFormState = { error: null, success: null };
-
-function ErrorMessage({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
-    >
-      {children}
-    </p>
-  );
-}
 
 export function ForgotPasswordForm() {
   const [state, formAction, pending] = useActionState<
@@ -35,13 +25,7 @@ export function ForgotPasswordForm() {
   if (state.success) {
     return (
       <div className="space-y-4">
-        <p
-          role="status"
-          className="flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
-        >
-          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none" />
-          {state.success}
-        </p>
+        <SuccessMessage>{state.success}</SuccessMessage>
         <p className="text-center text-sm text-slate-500">
           <Link
             href="/login"

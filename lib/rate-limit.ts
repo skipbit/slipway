@@ -29,13 +29,25 @@ export type RateLimitResult = {
  *
  * Falls back to "unknown" (one shared bucket) rather than silently disabling
  * the limit when no header is present.
+ *
+ * The result is truncated. Callers concatenate it into a `RateLimit` bucket
+ * key, which is that table's PRIMARY KEY: an unbounded header value (these are
+ * client-supplied, and Node accepts headers up to 16KB) becomes an oversized
+ * btree index row, Postgres raises `index row size ... exceeds btree version 4
+ * maximum 2704`, and an unauthenticated form throws. An IPv6 address needs 45
+ * characters; anything longer is a forged header or a broken proxy, and
+ * collapsing those into one bucket is the correct outcome anyway.
  */
+const MAX_IP_LENGTH = 64;
+
 export async function getClientIp(): Promise<string> {
   const h = await headers();
   const realIp = h.get("x-real-ip");
-  if (realIp) return realIp.trim();
+  if (realIp) return realIp.trim().slice(0, MAX_IP_LENGTH);
   const forwardedFor = h.get("x-forwarded-for");
-  if (forwardedFor) return forwardedFor.split(",")[0]!.trim();
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]!.trim().slice(0, MAX_IP_LENGTH);
+  }
   return "unknown";
 }
 

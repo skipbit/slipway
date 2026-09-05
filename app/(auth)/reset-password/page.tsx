@@ -18,6 +18,12 @@ export const metadata: Metadata = {
  * The token is checked here so an expired link says so up front, instead of
  * after the visitor has typed a password twice. This is a read only — the
  * token is not spent until the form is submitted.
+ *
+ * Deliberately NOT behind rateLimit(), unlike every sibling auth entry point:
+ * the check is one indexed SELECT, while rateLimit() is an upsert — throttling
+ * a read with a write costs the connection pool more than it saves. Guessing is
+ * not the threat either (256-bit tokens). If this route needs a cap, it belongs
+ * at the edge, not in a per-request database round trip.
  */
 export default async function ResetPasswordPage({
   searchParams,
@@ -32,14 +38,18 @@ export default async function ResetPasswordPage({
   const valid = token ? await isPasswordResetTokenValid(token) : false;
 
   if (!token || !valid) {
+    // A link that arrived without a token was never valid — telling that
+    // visitor their link "expired" sends them to request another one that
+    // their mail client will mangle exactly the same way.
     return (
       <div>
         <h1 className="text-center text-2xl font-bold tracking-tight text-slate-900">
-          This link has expired
+          {token ? "This link has expired" : "This link is incomplete"}
         </h1>
         <p className="mt-2 text-center text-sm text-slate-500">
-          Reset links are good for one hour and can only be used once. Request a
-          fresh one and we&apos;ll send it straight over.
+          {token
+            ? "Reset links are good for one hour and can only be used once. Request a fresh one and we'll send it straight over."
+            : "This address is missing its reset token — some mail clients cut long links in half. Try copying the whole link from the email, or request a new one."}
         </p>
 
         <div className="mt-8 text-center">

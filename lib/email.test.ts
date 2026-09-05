@@ -29,7 +29,7 @@ describe("sendPasswordResetEmail without credentials", () => {
   it("logs the link instead of sending, outside production", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    await sendPasswordResetEmail("ada@example.com", RESET_URL);
+    await sendPasswordResetEmail("ada@example.com", RESET_URL, 3600);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(console.info).toHaveBeenCalledWith(
@@ -42,7 +42,7 @@ describe("sendPasswordResetEmail without credentials", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     await expect(
-      sendPasswordResetEmail("ada@example.com", RESET_URL),
+      sendPasswordResetEmail("ada@example.com", RESET_URL, 3600),
     ).rejects.toThrow(/RESEND_API_KEY/);
 
     expect(console.info).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe("sendPasswordResetEmail with credentials", () => {
   it("posts the message to Resend as the configured sender", async () => {
     const fetchSpy = mockFetch(new Response("{}", { status: 200 }));
 
-    await sendPasswordResetEmail("ada@example.com", RESET_URL);
+    await sendPasswordResetEmail("ada@example.com", RESET_URL, 3600);
 
     const [url, init] = fetchSpy.mock.calls[0]!;
     expect(url).toBe("https://api.resend.com/emails");
@@ -82,7 +82,7 @@ describe("sendPasswordResetEmail with credentials", () => {
     const fetchSpy = mockFetch(new Response("{}", { status: 200 }));
     const urlWithAmp = "https://app.example.com/reset-password?token=abc&x=1";
 
-    await sendPasswordResetEmail("ada@example.com", urlWithAmp);
+    await sendPasswordResetEmail("ada@example.com", urlWithAmp, 3600);
 
     const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
     // The plain-text part carries the URL verbatim...
@@ -93,13 +93,25 @@ describe("sendPasswordResetEmail with credentials", () => {
     expect(body.html).not.toContain("token=abc&x=1");
   });
 
+  it("takes the link lifetime from its caller rather than restating it", async () => {
+    const fetchSpy = mockFetch(new Response("{}", { status: 200 }));
+
+    await sendPasswordResetEmail("ada@example.com", RESET_URL, 15 * 60);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1].body as string);
+    // Hardcoded here, the copy would keep promising 60 minutes the day someone
+    // shortens RESET_TOKEN_TTL_SECONDS.
+    expect(body.text).toContain("15 minutes");
+    expect(body.html).toContain("15 minutes");
+  });
+
   it("surfaces the provider's reason when it rejects the message", async () => {
     mockFetch(
       new Response('{"message":"domain is not verified"}', { status: 403 }),
     );
 
     await expect(
-      sendPasswordResetEmail("ada@example.com", RESET_URL),
+      sendPasswordResetEmail("ada@example.com", RESET_URL, 3600),
     ).rejects.toThrow(/403[\s\S]*domain is not verified/);
   });
 });

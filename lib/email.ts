@@ -57,6 +57,10 @@ async function send({ to, subject, html, text }: SendArgs): Promise<void> {
 
   const response = await fetch(RESEND_ENDPOINT, {
     method: "POST",
+    // Node's fetch has no default body timeout: a provider that accepts the
+    // connection and then stalls would hold this server action — and the
+    // user's form submission — open for minutes.
+    signal: AbortSignal.timeout(10_000),
     headers: {
       Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       "Content-Type": "application/json",
@@ -83,8 +87,10 @@ async function send({ to, subject, html, text }: SendArgs): Promise<void> {
 export async function sendPasswordResetEmail(
   to: string,
   resetUrl: string,
+  /** Lifetime of the link, so the copy cannot drift from the real TTL. */
+  ttlSeconds: number,
 ): Promise<void> {
-  const minutes = 60;
+  const minutes = Math.round(ttlSeconds / 60);
   // Safe today (the token is base64url and the name a constant), escaped anyway
   // so the next person to interpolate a user-supplied value here is not the one
   // who discovers this was raw.
