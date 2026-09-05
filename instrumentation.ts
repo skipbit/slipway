@@ -21,12 +21,12 @@ export function register() {
       .join("\n")}`,
   );
 
-  // Throwing from here is not enough: Next folds it into an unhandled
-  // rejection during server preparation, leaving a process that never binds a
-  // port — a hang rather than a configuration error, and nothing in the log an
-  // operator would look for. Exit so the container fails fast and visibly.
-  // (`process.exit` is absent on the edge runtime, where the throw is the best
-  // available signal anyway.)
-  if (typeof process.exit === "function") process.exit(1);
-  throw new Error("Invalid production configuration");
+  // Throw rather than process.exit(). Exiting reads better on a long-lived
+  // container, but on serverless `register()` runs inside a request invocation
+  // with no deploy to stop: exiting tears that invocation down mid-flight, can
+  // take the console.error above with it, and repeats per cold start as an
+  // unattributable 500. Throwing degrades predictably in both — Next reports
+  // the message, and a container is left with a server that never binds a port,
+  // which its health check fails.
+  throw new Error("Invalid production configuration; see the log above.");
 }

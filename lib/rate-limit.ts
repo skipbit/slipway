@@ -35,17 +35,48 @@ export type RateLimitResult = {
  * a single proxy-set value; `x-forwarded-for` is a client-prependable list
  * whose leftmost token is attacker-controlled, so it is only a fallback.
  *
- * Falls back to "unknown" (one shared bucket) rather than silently disabling
- * the limit when no header is present. The value is returned whole — bounding
- * it for storage is rateLimit()'s job, not this function's.
+ * THE OTHER FAILURE, measured: Next's own server fills `x-forwarded-for` in
+ * from the socket when the client sends none, so this rarely returns null in
+ * practice — it returns whatever the last hop was. Publish port 3000 straight
+ * out of Docker (which is what `docker-compose.prod.yml` does) and that hop can
+ * be the Docker gateway, identical for every visitor on the internet. The
+ * headers then look present and trustworthy while every caller shares one
+ * bucket. Nothing in the request can distinguish that from a real proxy, so
+ * per-IP limits must be chosen to stay survivable if it happens — see the
+ * limits in app/(auth)/actions.ts.
+ *
+ * Returns null when no header identifies the caller, and callers skip per-IP
+ * throttling entirely in that case. The tempting alternative — a shared
+ * "unknown" bucket — is worse than no limit at all: on a deploy with no proxy
+ * (which is what `docker compose -f docker-compose.prod.yml up` gives you,
+ * port 3000 published straight out) EVERY visitor lands in it, so the sixth
+ * password reset requested by anyone, anywhere, in an hour locks the feature
+ * for the whole install. That is a self-inflicted outage dressed as a security
+ * control, and it hits hardest on the one flow a locked-out user has no way
+ * around. The per-address bucket still applies, so abuse of any single inbox
+ * is still capped.
+ *
+ * The value is returned whole — bounding it for storage is rateLimit()'s job.
  */
-export async function getClientIp(): Promise<string> {
+let warnedAboutUnidentifiableClients = false;
+
+export async function getClientIp(): Promise<string | null> {
   const h = await headers();
   const realIp = h.get("x-real-ip");
   if (realIp) return realIp.trim();
   const forwardedFor = h.get("x-forwarded-for");
   if (forwardedFor) return forwardedFor.split(",")[0]!.trim();
-  return "unknown";
+
+  if (!warnedAboutUnidentifiableClients) {
+    warnedAboutUnidentifiableClients = true;
+    console.warn(
+      "[rate-limit] No x-real-ip or x-forwarded-for header on an incoming " +
+        "request — per-IP throttling is off. Put the app behind a proxy that " +
+        "sets x-real-ip from the real socket address; see the trust-boundary " +
+        "note in lib/rate-limit.ts.",
+    );
+  }
+  return null;
 }
 
 /**
@@ -63,6 +94,18 @@ export async function getClientIp(): Promise<string> {
  * in the table without a length limit leaking into the callers' contracts.
  */
 const MAX_KEY_LENGTH = 200;
+
+/**
+ * Hash a value that should not sit in the table in the clear.
+ *
+ * `RateLimit` rows outlive their window (nothing calls
+ * cleanupExpiredRateLimits yet), so a bucket keyed on an address typed into a
+ * public form would otherwise accumulate into a permanent list of real and
+ * guessed email addresses. The bucket works the same on a digest.
+ */
+export function opaqueKeyPart(value: string): string {
+  return createHash("sha256").update(value).digest("base64url");
+}
 
 export function bucketKey(key: string): string {
   if (key.length <= MAX_KEY_LENGTH) return key;

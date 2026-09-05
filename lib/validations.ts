@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PASSWORD_MIN_LENGTH } from "@/lib/utils";
 
 // Normalised before it is validated, so callers never have to remember to.
 // The address is an identity — User.email's unique index, a rate-limit bucket
@@ -20,8 +21,6 @@ const emailField = z
       .max(254, "Email must be 254 characters or fewer."),
   );
 
-/** Shared with the client so its `minLength` cannot drift from this schema. */
-export const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 128;
 
 export const loginSchema = z.object({

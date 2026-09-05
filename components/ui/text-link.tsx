@@ -1,13 +1,18 @@
-import Link, { type LinkProps } from "next/link";
+import Link from "next/link";
+import { type ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 // The indigo inline link used throughout the auth flow — six copies of the
 // same three classes before this existed.
+// ComponentProps<typeof Link>, not LinkProps: the latter covers href/prefetch
+// and friends but none of the anchor attributes next/link forwards, so the
+// first caller wanting target/rel/aria-label would be pushed back to a raw
+// <Link> — the six copies this exists to prevent.
 export function TextLink({
   className,
   children,
   ...props
-}: LinkProps & { className?: string; children: React.ReactNode }) {
+}: ComponentProps<typeof Link>) {
   return (
     <Link
       className={cn(

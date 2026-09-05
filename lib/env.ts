@@ -15,6 +15,18 @@
 
 type Env = Record<string, string | undefined>;
 
+/**
+ * Both halves present and non-blank.
+ *
+ * The single definition, shared with lib/email.ts. Two of them drifted once
+ * already: raw truthiness here and `.trim()` there meant a whitespace-only
+ * RESEND_API_KEY read as configured in one place and unset in the other, so
+ * the server booted happily and then sent `Authorization: Bearer    `.
+ */
+export function isEmailConfigured(env: Env = process.env): boolean {
+  return Boolean(env.RESEND_API_KEY?.trim() && env.EMAIL_FROM?.trim());
+}
+
 /** Everything wrong with `env`, as sentences an operator can act on. */
 export function productionConfigProblems(env: Env): string[] {
   if (env.NODE_ENV !== "production") return [];
@@ -36,6 +48,7 @@ export function productionConfigProblems(env: Env): string[] {
 
   const hasKey = Boolean(env.RESEND_API_KEY?.trim());
   const hasFrom = Boolean(env.EMAIL_FROM?.trim());
+  // Both unset is legal — see the note at the top of this file.
   if (hasKey !== hasFrom) {
     problems.push(
       `RESEND_API_KEY and EMAIL_FROM must be set together (${

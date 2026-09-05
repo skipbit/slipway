@@ -120,6 +120,14 @@ proxy.ts                   cookie check for /dashboard (authoritative check in l
 
 ## Going to production
 
+Put a reverse proxy in front that sets `x-real-ip` from the real socket
+address (nginx `proxy_set_header X-Real-IP $remote_addr;`, or a platform that
+does it for you). Without one, every visitor can look like the same client to
+`lib/rate-limit.ts` — publishing port 3000 straight out of Docker is enough to
+cause it — and the per-IP throttles on login, signup and password reset stop
+being per-IP. `FORGOT_PASSWORD_IP_LIMIT` is set high enough to survive that;
+`LOGIN_LIMIT` and `SIGNUP_LIMIT` are not.
+
 Set `APP_URL` to the real origin. `NEXT_PUBLIC_APP_URL` is inlined when the
 image is built, so a prebuilt image would otherwise mail password reset links
 pointing at `http://localhost:3000`. `instrumentation.ts` checks this at
@@ -139,12 +147,14 @@ The stack is already Postgres. Two paths:
 - **Vercel** — works out of the box; set `DATABASE_URL` (managed Postgres) plus
   the env vars below.
 
-  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL,APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
 
 Then:
 
-1. Set `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `DATABASE_URL`, and (optionally) the
-   Google OAuth vars.
+1. Set `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `APP_URL`, `DATABASE_URL`, and
+   (optionally) the Google OAuth and Resend vars. `APP_URL` is not optional in
+   production — the server refuses to start without it, because it is the
+   origin password reset emails link to.
 2. Add your production domain to the Google OAuth client redirect URIs.
 3. Run `npx prisma migrate deploy` as part of your deploy step. The Docker
    path already does this in the `migrate` service; on Vercel, add it to the
@@ -279,6 +289,14 @@ proxy.ts                   /dashboard の Cookie チェック(正式な検証は
 
 ## 本番運用へ
 
+実際の socket アドレスから `x-real-ip` を立てるリバースプロキシを前段に置いて
+ください(nginx なら `proxy_set_header X-Real-IP $remote_addr;`、あるいは
+それを行うプラットフォーム)。無い場合、`lib/rate-limit.ts` からは全訪問者が
+同一クライアントに見えることがあり(Docker の 3000 番をそのまま公開するだけで
+起こります)、ログイン・サインアップ・パスワードリセットの per-IP 制限が
+per-IP でなくなります。`FORGOT_PASSWORD_IP_LIMIT` はその状態でも耐える値に
+してありますが、`LOGIN_LIMIT` と `SIGNUP_LIMIT` はそうではありません。
+
 `APP_URL` に実際のオリジンを設定してください。`NEXT_PUBLIC_APP_URL` はビルド時に
 埋め込まれるため、ビルド済みイメージのままだとパスワードリセットのメールが
 `http://localhost:3000` を指すリンクを送ってしまいます。`instrumentation.ts` が
@@ -298,12 +316,14 @@ proxy.ts                   /dashboard の Cookie チェック(正式な検証は
 - **Vercel** — そのまま動作。`DATABASE_URL`(マネージド Postgres)と下記の環境
   変数を設定するだけ。
 
-  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway&env=AUTH_SECRET,DATABASE_URL,NEXT_PUBLIC_APP_URL,APP_URL&envLink=https%3A%2F%2Fgithub.com%2Fskipbit%2Fslipway%2Fblob%2Fmain%2F.env.example)
 
 その上で：
 
-1. `AUTH_SECRET`、`NEXT_PUBLIC_APP_URL`、`DATABASE_URL`、(必要なら)Google OAuth
-   の環境変数を設定。
+1. `AUTH_SECRET`、`NEXT_PUBLIC_APP_URL`、`APP_URL`、`DATABASE_URL`、(必要なら)
+   Google OAuth と Resend の環境変数を設定。`APP_URL` は本番では必須で、
+   未設定だとサーバーは起動を拒否します(パスワードリセットのメールが指す
+   オリジンだからです)。
 2. Google OAuth クライアントのリダイレクト URI に本番ドメインを追加。
 3. デプロイ手順に `npx prisma migrate deploy` を組み込む。Docker 経路は
    `migrate` サービスが既に実行済み。Vercel の場合はビルドコマンドに追加。

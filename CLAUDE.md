@@ -53,14 +53,15 @@ public pages (needs `npx playwright install chromium` once).
   for Google OAuth. Email/password lives in the Credentials provider with
   bcryptjs hashes on `User.passwordHash`. Google sign-in enables itself when
   `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set (see `isGoogleConfigured`).
-- **Startup config check**: `instrumentation.ts` runs `assertProductionConfig()`
+- **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot
   instead of mailing links nobody can open. Email being unconfigured entirely
   stays legal: that is the documented console-fallback mode.
 - **Password reset**: `lib/password-reset.ts` mints a 256-bit token, stores
-  only its SHA-256, and redeems it exactly once (`deleteMany` is the atomic
-  gate). `lib/email.ts` sends it through Resend over plain `fetch` — and when
+  only its SHA-256, and redeems it exactly once (a single
+  `DELETE ... WHERE "expiresAt" > now() RETURNING "userId"` is the gate — the
+  statement is the expiry check and the single-use lock at once). `lib/email.ts` sends it through Resend over plain `fetch` — and when
   `RESEND_API_KEY`/`EMAIL_FROM` are unset it logs the link instead, so the flow
   works on a fresh clone; that fallback throws under `NODE_ENV=production`
   rather than scattering live tokens through a log. The throw is caught by

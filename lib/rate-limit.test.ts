@@ -26,6 +26,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import {
   bucketKey,
+  opaqueKeyPart,
   cleanupExpiredRateLimits,
   getClientIp,
   rateLimit,
@@ -56,9 +57,12 @@ describe("getClientIp", () => {
     expect(await getClientIp()).toBe("203.0.113.7");
   });
 
-  it("returns 'unknown' when no proxy header is present", async () => {
+  it("returns null when no proxy header identifies the caller", async () => {
+    // NOT a shared "unknown" bucket: without a proxy every visitor would land
+    // in it, and the sixth password reset requested anywhere in an hour would
+    // lock the feature for the whole install.
     headersMock.mockResolvedValue(new Headers());
-    expect(await getClientIp()).toBe("unknown");
+    expect(await getClientIp()).toBeNull();
   });
 
   it("returns the header whole — bounding it is rateLimit's job", async () => {
@@ -154,6 +158,28 @@ describe("bucketKey", () => {
 
   it("copes with a key that has no prefix at all", () => {
     expect(bucketKey("x".repeat(4000))).toMatch(/^h:/);
+  });
+});
+
+describe("opaqueKeyPart", () => {
+  it("is deterministic, or a caller would get a fresh bucket per request", () => {
+    expect(opaqueKeyPart("ada@example.com")).toBe(
+      opaqueKeyPart("ada@example.com"),
+    );
+  });
+
+  it("does not leak the value it stands for", () => {
+    // RateLimit rows outlive their window (nothing calls the cleanup helper
+    // yet), so a bucket keyed on an address typed into a public form would
+    // otherwise become a permanent list of real and guessed addresses.
+    expect(opaqueKeyPart("ada@example.com")).not.toContain("ada");
+    expect(opaqueKeyPart("ada@example.com")).not.toContain("@");
+  });
+
+  it("separates different values", () => {
+    expect(opaqueKeyPart("a@example.com")).not.toBe(
+      opaqueKeyPart("b@example.com"),
+    );
   });
 });
 

@@ -5,7 +5,11 @@ export const siteConfig = {
   // Build-time value: NEXT_PUBLIC_* is substituted by the bundler, so this is
   // frozen into the image. Fine for metadataBase; NOT fine for anything that
   // leaves the app — use externalUrl() for that.
-  url: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  // `||`, not `??`, for the same reason as externalUrl below: a build arg can
+  // be present and empty (`--build-arg NEXT_PUBLIC_APP_URL=`), and "" is
+  // non-nullish. Left as `??` this yields "", which makes externalUrl return a
+  // relative link and `new URL(siteConfig.url)` in app/layout.tsx throw.
+  url: process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
 };
 
 /**

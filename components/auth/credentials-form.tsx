@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { type AuthFormState } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { PASSWORD_MIN_LENGTH } from "@/lib/validations";
+import { PASSWORD_MIN_LENGTH } from "@/lib/utils";
 import { ErrorMessage } from "@/components/ui/message";
 import { TextLink } from "@/components/ui/text-link";
 

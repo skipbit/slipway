@@ -39,8 +39,13 @@ function LinkProblem({ title, body }: { title: string; body: string }) {
  * Deliberately NOT behind rateLimit(), unlike every sibling auth entry point:
  * the check is one indexed SELECT, while rateLimit() is an upsert — throttling
  * a read with a write costs the connection pool more than it saves. Guessing is
- * not the threat either (256-bit tokens). If this route needs a cap, it belongs
- * at the edge, not in a per-request database round trip.
+ * not the threat either (256-bit tokens).
+ *
+ * Be clear on what that leaves: a request flood still becomes a query flood
+ * against the shared pool, and nothing in this repo caps it. The cap belongs at
+ * the edge (CDN, WAF, ingress) and you have to put it there — the argument
+ * above is for why it does not belong in a per-request round trip, not a claim
+ * that the route is protected.
  */
 export default async function ResetPasswordPage({
   searchParams,

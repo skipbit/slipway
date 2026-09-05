@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { hashPassword, signIn } from "@/lib/auth";
+import { hashPassword, signIn, signOut } from "@/lib/auth";
+import { isEmailConfigured } from "@/lib/env";
 import { sendPasswordResetEmail } from "@/lib/email";
 import {
   RESET_TOKEN_TTL_SECONDS,
@@ -12,6 +13,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   getClientIp,
+  opaqueKeyPart,
   rateLimit,
   type RateLimitConfig,
 } from "@/lib/rate-limit";
@@ -25,6 +27,17 @@ import {
 
 export type AuthFormState = { error: string | null };
 
+/** Prisma's unique-constraint violation, without importing the generated
+ *  error class from a gitignored path. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "P2002"
+  );
+}
+
 /** Adds the "we sent it" line; only the request-a-link form has one. */
 export type PasswordResetFormState = AuthFormState & {
   success: string | null;
@@ -33,13 +46,20 @@ export type PasswordResetFormState = AuthFormState & {
 // Per-IP throttles for credential auth. Tune to taste — shared NATs mean a
 // whole office counts as one caller, so keep these generous enough for humans
 // while still blunting brute force.
+//
+// These two predate the reset work and are left as they are, but read
+// getClientIp() before deploying: if every visitor collapses into one bucket,
+// 10 logins per 10 minutes is 10 for the entire install. Put a proxy in front
+// that sets x-real-ip, or raise them the way FORGOT_PASSWORD_IP_LIMIT is
+// raised below.
 const LOGIN_LIMIT: RateLimitConfig = { max: 10, windowSeconds: 10 * 60 };
 const SIGNUP_LIMIT: RateLimitConfig = { max: 5, windowSeconds: 60 * 60 };
 // Reset requests get two buckets. The per-IP one blunts a script walking an
 // address list; the per-email one caps how much mail any single address can be
-// made to receive. Per-email buckets are created for addresses that may not
-// exist, which is what the per-IP cap is for — 5 rows per IP per hour,
-// reclaimed by cleanupExpiredRateLimits().
+// made to receive, and is keyed on a digest of the address (opaqueKeyPart) —
+// rows are created for addresses that may not exist, and nothing calls
+// cleanupExpiredRateLimits() yet, so storing them in the clear would build a
+// permanent list of everything typed into a public form.
 //
 // The email cap is deliberately the LOOSER of the two. Set below the IP cap it
 // would hand any single attacker a lockout: burn a known victim's bucket and
@@ -48,8 +68,17 @@ const SIGNUP_LIMIT: RateLimitConfig = { max: 5, windowSeconds: 60 * 60 };
 // hour. There is no setting that removes the lockout entirely — telling a
 // throttled caller apart from an unthrottled one is the same oracle the neutral
 // response exists to close.
+//
+// The IP cap is a VOLUME BRAKE, not a per-user control, and its number is
+// chosen to survive the collapse described in getClientIp(): behind a plain
+// published port every visitor can share one bucket, and a tight cap there
+// would mean the sixth reset requested by anyone in an hour kills account
+// recovery for the whole install — an outage dressed as a security control, on
+// the one flow a locked-out user has no way around. 100/hr still blunts a bulk
+// script (and protects sender reputation) while staying clear of any plausible
+// legitimate volume; the per-address cap below is what actually binds.
 const FORGOT_PASSWORD_IP_LIMIT: RateLimitConfig = {
-  max: 5,
+  max: 100,
   windowSeconds: 60 * 60,
 };
 const FORGOT_PASSWORD_EMAIL_LIMIT: RateLimitConfig = {
@@ -72,7 +101,7 @@ const RESET_PASSWORD_LIMIT: RateLimitConfig = {
 async function throttle(
   key: string,
   { max, windowSeconds }: RateLimitConfig,
-): Promise<PasswordResetFormState | null> {
+): Promise<AuthFormState | null> {
   const limit = await rateLimit(key, max, windowSeconds);
   if (limit.success) return null;
 
@@ -81,8 +110,21 @@ async function throttle(
     error: `Too many attempts. Try again in about ${minutes} minute${
       minutes === 1 ? "" : "s"
     }.`,
-    success: null,
   };
+}
+
+/**
+ * The same, keyed on the caller's IP — and skipped entirely when no proxy
+ * header identifies one, rather than dropping every visitor into a shared
+ * bucket. See getClientIp() for why that fallback is worse than no limit.
+ */
+async function throttleByIp(
+  prefix: string,
+  config: RateLimitConfig,
+): Promise<AuthFormState | null> {
+  const ip = await getClientIp();
+  if (!ip) return null;
+  return throttle(`${prefix}:${ip}`, config);
 }
 
 export async function loginAction(
@@ -94,8 +136,7 @@ export async function loginAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const ip = await getClientIp();
-  const blocked = await throttle(`login:${ip}`, LOGIN_LIMIT);
+  const blocked = await throttleByIp("login", LOGIN_LIMIT);
   if (blocked) return blocked;
 
   try {
@@ -123,8 +164,7 @@ export async function signupAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const ip = await getClientIp();
-  const blocked = await throttle(`signup:${ip}`, SIGNUP_LIMIT);
+  const blocked = await throttleByIp("signup", SIGNUP_LIMIT);
   if (blocked) return blocked;
 
   // signupSchema already trimmed and lower-cased it.
@@ -135,9 +175,22 @@ export async function signupAction(
   }
 
   const passwordHash = await hashPassword(parsed.data.password);
-  await prisma.user.create({
-    data: { name: parsed.data.name, email, passwordHash },
-  });
+  try {
+    await prisma.user.create({
+      data: { name: parsed.data.name, email, passwordHash },
+    });
+  } catch (err) {
+    // The findUnique above is a check, not a lock: two signups for the same
+    // address can both pass it and race to the insert. The unique index is the
+    // real gate, so translate its complaint instead of letting an unhandled
+    // exception escape a public action.
+    if (isUniqueViolation(err)) {
+      return {
+        error: "An account with this email already exists. Log in instead.",
+      };
+    }
+    throw err;
+  }
 
   try {
     await signIn("credentials", {
@@ -180,18 +233,33 @@ export async function requestPasswordResetAction(
     };
   }
 
-  const ip = await getClientIp();
-  const ipBlocked = await throttle(`forgot:ip:${ip}`, FORGOT_PASSWORD_IP_LIMIT);
-  if (ipBlocked) return ipBlocked;
+  // Production with no mail credentials can never deliver, and the neutral
+  // message would be a lie repeated forever. Saying so plainly is safe: the
+  // answer depends on our configuration, not on whether the account exists, so
+  // it is the same for everyone and leaks nothing. Development keeps the
+  // console fallback and the neutral message.
+  if (process.env.NODE_ENV === "production" && !isEmailConfigured()) {
+    return {
+      error:
+        "Password reset is unavailable right now. Please contact support.",
+      success: null,
+    };
+  }
+
+  const ipBlocked = await throttleByIp(
+    "forgot:ip",
+    FORGOT_PASSWORD_IP_LIMIT,
+  );
+  if (ipBlocked) return { ...ipBlocked, success: null };
 
   const email = parsed.data.email;
   // Keyed on what was typed, not on what exists, so being throttled here says
   // nothing about whether the account is real.
   const emailBlocked = await throttle(
-    `forgot:email:${email}`,
+    `forgot:email:${opaqueKeyPart(email)}`,
     FORGOT_PASSWORD_EMAIL_LIMIT,
   );
-  if (emailBlocked) return emailBlocked;
+  if (emailBlocked) return { ...emailBlocked, success: null };
 
   const user = await prisma.user.findUnique({ where: { email } });
 
@@ -238,8 +306,7 @@ export async function resetPasswordAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const ip = await getClientIp();
-  const blocked = await throttle(`reset:${ip}`, RESET_PASSWORD_LIMIT);
+  const blocked = await throttleByIp("reset", RESET_PASSWORD_LIMIT);
   if (blocked) return blocked;
 
   // Hash before the transaction opens: bcrypt costs ~100ms and holding a
@@ -265,10 +332,18 @@ export async function resetPasswordAction(
     };
   }
 
-  // redirect() throws — it must stay outside any try/catch that would swallow
-  // it (same reason as the signIn calls above). Landing on /login rather than
-  // signing them in proves the new password actually works.
-  redirect("/login?reset=1");
+  // signOut() rather than redirect(): the page deliberately serves a visitor
+  // who is already signed in on this browser, and /login bounces an
+  // authenticated session to /dashboard — so redirecting there would have shown
+  // that visitor nothing at all. Ending the session also means the browser that
+  // just changed the password re-authenticates with it, which is the only part
+  // of the JWT revocation gap we can close from here. It throws to redirect,
+  // like signIn above, so it stays outside any catch.
+  await signOut({ redirectTo: "/login?reset=1" });
+
+  // Unreachable: signOut throws to redirect. Unlike redirect(), its type does
+  // not say so, so TypeScript still wants a return.
+  return { error: null };
 }
 
 export async function googleSignInAction() {

@@ -1,3 +1,4 @@
+import { isEmailConfigured } from "@/lib/env";
 import { siteConfig } from "@/lib/site";
 
 // Transactional email over Resend's REST API.
@@ -14,10 +15,6 @@ import { siteConfig } from "@/lib/site";
 // its way" and none of it ever arrives.
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
-
-function isEmailConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
-}
 
 /** Escape before interpolating anything into the HTML body. */
 function escapeHtml(value: string): string {

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { ErrorMessage, SuccessMessage } from "@/components/ui/message";
 import { TextLink } from "@/components/ui/text-link";
-import { PASSWORD_MIN_LENGTH } from "@/lib/validations";
+import { PASSWORD_MIN_LENGTH } from "@/lib/utils";
 
 const requestInitialState: PasswordResetFormState = {
   error: null,
