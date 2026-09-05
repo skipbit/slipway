@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { productionConfigProblems } from "@/lib/env";
+import {
+  emailDeliveryUnavailable,
+  productionConfigProblems,
+} from "@/lib/env";
 
 const configured = {
   NODE_ENV: "production",
@@ -70,5 +73,37 @@ describe("productionConfigProblems", () => {
         RESEND_API_KEY: "re_123",
       }),
     ).toHaveLength(2);
+  });
+});
+
+describe("emailDeliveryUnavailable", () => {
+  // The forms check this before doing the work, because the send itself now
+  // runs in after() where its throw lands past the response.
+  it("is true only in production with no credentials", () => {
+    expect(emailDeliveryUnavailable(configured)).toBe(false);
+    expect(
+      emailDeliveryUnavailable({
+        ...configured,
+        RESEND_API_KEY: "",
+        EMAIL_FROM: "",
+      }),
+    ).toBe(true);
+  });
+
+  it("is false outside production, where the console fallback works", () => {
+    expect(
+      emailDeliveryUnavailable({ NODE_ENV: "development" }),
+    ).toBe(false);
+  });
+
+  it("agrees with the startup check about whitespace", () => {
+    // Two definitions of "configured" drifted once already; this pins them.
+    expect(
+      emailDeliveryUnavailable({
+        ...configured,
+        RESEND_API_KEY: "   ",
+        EMAIL_FROM: "   ",
+      }),
+    ).toBe(true);
   });
 });

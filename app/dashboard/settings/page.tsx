@@ -2,11 +2,12 @@ import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import {
   DeleteAccountForm,
   ProfileForm,
 } from "@/components/dashboard/settings-forms";
+import { VerifyEmailNotice } from "@/components/dashboard/verify-email-notice";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -16,7 +17,15 @@ export default async function SettingsPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    include: { accounts: { select: { provider: true } } },
+    select: {
+      name: true,
+      email: true,
+      emailVerified: true,
+      createdAt: true,
+      // Read only to answer "is password one of your sign-in methods".
+      passwordHash: true,
+      accounts: { select: { provider: true } },
+    },
   });
   if (!user) redirect("/login");
 
@@ -46,12 +55,26 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      {!user.emailVerified && <VerifyEmailNotice email={user.email} />}
+
       <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <h2 className="text-base font-semibold text-slate-900">Account</h2>
         <dl className="mt-4 space-y-3 text-sm">
           <div className="flex gap-4">
             <dt className="w-36 flex-none text-slate-500">Email</dt>
-            <dd className="text-slate-900">{user.email}</dd>
+            <dd className="text-slate-900">
+              {user.email}{" "}
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                  user.emailVerified
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-800",
+                )}
+              >
+                {user.emailVerified ? "Confirmed" : "Not confirmed"}
+              </span>
+            </dd>
           </div>
           <div className="flex gap-4">
             <dt className="w-36 flex-none text-slate-500">Sign-in methods</dt>

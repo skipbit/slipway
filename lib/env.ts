@@ -27,6 +27,18 @@ export function isEmailConfigured(env: Env = process.env): boolean {
   return Boolean(env.RESEND_API_KEY?.trim() && env.EMAIL_FROM?.trim());
 }
 
+/**
+ * Production with no mail credentials: nothing sent here can ever arrive.
+ *
+ * Callers check this BEFORE doing the work, not after, because the send itself
+ * now happens in `after()` — its throw lands past the response, where nothing
+ * can turn it into something the user reads. That makes this the only place a
+ * form can tell someone the truth instead of promising mail that will not come.
+ */
+export function emailDeliveryUnavailable(env: Env = process.env): boolean {
+  return env.NODE_ENV === "production" && !isEmailConfigured(env);
+}
+
 /** Everything wrong with `env`, as sentences an operator can act on. */
 export function productionConfigProblems(env: Env): string[] {
   if (env.NODE_ENV !== "production") return [];

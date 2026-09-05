@@ -13,6 +13,7 @@ import { loginSchema } from "@/lib/validations";
  *   the dashboard fast (no DB hit per request just to read the session).
  * - PrismaAdapter still persists Users/Accounts for OAuth sign-ins.
  * - Google sign-in is enabled automatically when AUTH_GOOGLE_ID/SECRET are set.
+ * - Linking an OAuth account marks the address verified (see `events` below).
  */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -55,7 +56,61 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
+  events: {
+    /**
+     * Fires when an OAuth account is attached to a user — on first sign-in, and
+     * again if a Google login links to an EXISTING email/password account
+     * (allowDangerousEmailAccountLinking above). It is the documented seam for
+     * this: the provider's `profile()` return type has no room for
+     * `emailVerified`, and this event's `profile` is the mapped user, not the
+     * raw OIDC claims.
+     *
+     * Google has already proved the address, so a pure OAuth account should not
+     * be asked to prove it again. But the conditions matter, and the where
+     * clause carries them so they are checked atomically:
+     *
+     * - `passwordHash: null` — the account has no local credential. Without
+     *   this, an attacker who signed up with password auth under someone else's
+     *   address gets their row stamped "Confirmed" the moment the real owner
+     *   signs in with Google, and every gate written against `emailVerified`
+     *   then trusts an account the attacker still knows the password to. Such a
+     *   user stays unverified and confirms by clicking the emailed link, which
+     *   is the thing that actually proves control.
+     * - `emailVerified: null` — don't move an existing timestamp.
+     *
+     * Whether Google vouched for the address at all is checked in the `signIn`
+     * callback below, which is where the raw profile is available.
+     */
+    async linkAccount({ user }) {
+      // `User.id` is optional on Auth.js's type, and Prisma DROPS an undefined
+      // filter field rather than matching nothing — so an id-less user here
+      // would turn this into "stamp emailVerified on every passwordless
+      // unverified account". Adapter users always carry one today; this is the
+      // guard for the day one does not.
+      if (!user.id) return;
+
+      await prisma.user.updateMany({
+        where: { id: user.id, emailVerified: null, passwordHash: null },
+        data: { emailVerified: new Date() },
+      });
+    },
+  },
   callbacks: {
+    /**
+     * An OAuth provider that says outright it has NOT verified the address is
+     * not an identity we can accept — it would let anyone claim any address by
+     * putting it in an unverified profile. Google normally sets this true;
+     * Workspace domains and any provider added later are why it is checked.
+     */
+    signIn({ account, profile }) {
+      // "oidc" and "oauth" both: Auth.js types Google and friends as oidc, but
+      // GitHub, Discord and every plain OAuth 2.0 provider as "oauth" — and the
+      // comment above promises this covers providers added later.
+      if (!account || (account.type !== "oidc" && account.type !== "oauth")) {
+        return true;
+      }
+      return profile?.email_verified !== false;
+    },
     jwt({ token, user }) {
       if (user?.id) token.id = user.id;
       return token;

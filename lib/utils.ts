@@ -30,6 +30,25 @@ export function firstParam(
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * A link lifetime in the units a human would say it in.
+ *
+ * Shared by the emails and by the pages that explain an expired link, because
+ * the two saying "1 day" and "24 hours" about the same number reads like a bug
+ * even when it isn't.
+ */
+export function humanDuration(seconds: number): string {
+  // Floor, not round: this tells someone how long they have, so being wrong
+  // should mean they act sooner, never later. Rounding turns a 90-minute link
+  // into "2 hours".
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
 export function formatDate(date: Date): string {
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",

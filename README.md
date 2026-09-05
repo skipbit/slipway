@@ -26,6 +26,7 @@ get your product into the water fast.
 - **Next.js 16** — App Router, React Server Components, Server Actions, Turbopack
 - **Auth.js v5 (NextAuth)** — email/password + optional Google OAuth, JWT sessions, two-layer route protection
 - **Password reset** — single-use hashed tokens over email (Resend), rate limited and safe against account enumeration; with no mail credentials the link is logged to the console so the flow works on a fresh clone (refused under `NODE_ENV=production`, so a misconfigured deploy leaves a clear server-side error instead of scattering live tokens through a log)
+- **Email verification** — the same single-use hashed tokens, confirmed by a button rather than by the GET (mail scanners follow links); a nudge with a resend on the dashboard, not a wall, and a Google sign-in is verified already
 - **Prisma 7 + Postgres** — Rust-free client via the pg driver adapter; one-command local stack via Docker Compose; the same containerized app + Postgres in production; versioned migrations committed under `prisma/migrations/`
 - **Tailwind CSS v4** — landing page (hero / features / FAQ) and a dashboard shell with settings
 - **TypeScript strict mode** — `npm run build`, `npm run lint`, and `npx tsc --noEmit` all pass clean
@@ -105,14 +106,14 @@ Open the repo with [Claude Code](https://claude.com/claude-code) and try:
 
 ```
 app/
-  (auth)/                  login / signup / password reset + server actions
+  (auth)/                  login / signup / password reset / email confirmation
   api/auth/[...nextauth]/  Auth.js route handler
   dashboard/               protected app shell: overview, settings
   page.tsx                 landing page (hero, features, FAQ)
 components/                landing, auth, dashboard, ui primitives
-lib/                       auth.ts, prisma.ts, email.ts, password-reset.ts, env.ts, ...
+lib/                       auth.ts, prisma.ts, email.ts, email-token.ts, env.ts, ...
 instrumentation.ts         startup check: production config that must not be wrong
-prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
+prisma/schema.prisma       User / Account / Session / VerificationToken / EmailToken / RateLimit
 prisma/migrations/         versioned migration SQL, applied on every start
 proxy.ts                   cookie check for /dashboard (authoritative check in layout)
 .claude/                   CLAUDE.md companion: agents, commands, settings
@@ -162,8 +163,18 @@ Then:
 
 ## Known limitations (deliberate scope cuts)
 
-- No email verification yet. Password reset is in (`lib/password-reset.ts`);
-  verification would reuse the same `lib/email.ts` seam.
+- Email verification is a nudge, not a gate: nothing is blocked while an
+  address is unconfirmed. `user.emailVerified` is the flag; gate in the page or
+  action that matters, which already loads the user. A blanket rule in
+  `app/dashboard/layout.tsx` is possible but not free — that layout runs no
+  query today, so a gate there adds a database read to every dashboard request,
+  which is exactly what the JWT session strategy exists to avoid.
+- `allowDangerousEmailAccountLinking` is on, so a Google sign-in joins an
+  existing password account with the same address. That is a convenience with a
+  known edge: whoever signed up first owns the row. `emailVerified` is not set
+  by that link when the account already has a password (see the `linkAccount`
+  event), so the flag stays honest — but if you need the linking itself to be
+  safe, turn the flag off or require the existing account to be verified first.
 - Sessions are JWTs, so a password reset cannot revoke a session cookie stolen
   beforehand — it stays valid until it expires. Closing that means a
   `passwordChangedAt` check on every request, which costs the "no DB hit per
@@ -197,6 +208,7 @@ Slipway(進水台)は船を水に降ろすための斜路のこと。このリ�
 - **Next.js 16** — App Router、React Server Components、Server Actions、Turbopack
 - **Auth.js v5 (NextAuth)** — メール/パスワード + Google OAuth(任意)、JWT セッション、二層のルート保護
 - **パスワードリセット** — ハッシュ化した単回使用トークンをメールで送付(Resend)。レート制限付きで、アカウントの存在を漏らさない。メール未設定ならリンクをコンソールに出力するので clone 直後でも動く(`NODE_ENV=production` では出力を拒否するので、設定漏れがログに生トークンを撒かず、サーバー側に明確なエラーが残る)
+- **メール認証** — 同じハッシュ化した単回使用トークン。GET ではなくボタンで確定します(メールスキャナがリンクを踏むため)。ダッシュボードでの通知と再送であって通せんぼではなく、Google ログインは最初から確認済み扱い
 - **Prisma 7 + Postgres** — pg ドライバアダプタ経由の Rust-free クライアント。Docker Compose で1コマンドのローカル環境。本番も同じコンテナ + Postgres。マイグレーション履歴は `prisma/migrations/` にコミット済み
 - **Tailwind CSS v4** — ランディングページ(ヒーロー / 機能 / FAQ)と設定ページ付きダッシュボード
 - **TypeScript strict モード** — `npm run build` / `npm run lint` / `npx tsc --noEmit` すべてクリーン
@@ -274,14 +286,14 @@ Google ログインを有効にするには、[Google Cloud Console](https://con
 
 ```
 app/
-  (auth)/                  ログイン / サインアップ / パスワードリセット + Server Actions
+  (auth)/                  ログイン / サインアップ / パスワードリセット / メール確認
   api/auth/[...nextauth]/  Auth.js ルートハンドラ
   dashboard/               保護されたアプリシェル: 概要、設定
   page.tsx                 ランディングページ(ヒーロー、機能、FAQ)
 components/                landing、auth、dashboard、ui プリミティブ
-lib/                       auth.ts、prisma.ts、email.ts、password-reset.ts、env.ts ほか
+lib/                       auth.ts、prisma.ts、email.ts、email-token.ts、env.ts ほか
 instrumentation.ts         起動時チェック: 間違っていてはいけない本番設定
-prisma/schema.prisma       User / Account / Session / VerificationToken / PasswordResetToken
+prisma/schema.prisma       User / Account / Session / VerificationToken / EmailToken / RateLimit
 prisma/migrations/         マイグレーション SQL — 起動時に自動適用
 proxy.ts                   /dashboard の Cookie チェック(正式な検証は layout 側)
 .claude/                   CLAUDE.md と対になる agents、commands、settings
@@ -330,8 +342,12 @@ per-IP でなくなります。`FORGOT_PASSWORD_IP_LIMIT` はその状態でも�
 
 ## 既知の制限(意図的なスコープ)
 
-- メール認証は未実装。パスワードリセットは実装済み(`lib/password-reset.ts`)で、
-  メール認証も同じ `lib/email.ts` の接合部を再利用できます。
+- メール認証は通知であって門番ではありません。未確認でも何も制限しません。判定は
+  `user.emailVerified` で、安いのは「対象のページまたはアクションで塞ぐ」方法です
+  (どちらも既にユーザーを読み込んでいます)。`app/dashboard/layout.tsx` で一括に
+  することもできますが無料ではありません — この layout は現在クエリを 1 本も撃って
+  いないため、そこに置くと全ダッシュボードリクエストに DB 読み取りが乗ります。
+  JWT セッション戦略が避けているのはまさにそれです。
 - セッションが JWT のため、リセット前に盗まれたセッション Cookie はリセットでは
   失効せず、期限まで有効なままです。塞ぐには全リクエストで `passwordChangedAt` を
   照合する必要があり、JWT を選んだ理由である「リクエスト毎の DB アクセスなし」を

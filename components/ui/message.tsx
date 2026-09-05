@@ -1,12 +1,10 @@
 import { CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// The boxed messages inside the auth forms, kept here rather than copied per
-// form so that surface can't drift into two shades of red.
-//
-// Scoped to auth on purpose: the dashboard's settings forms use unboxed inline
-// text (`text-sm text-red-600`), a different treatment rather than a stray
-// copy. Folding those in means adding a variant, not a find-and-replace.
+// The form messages, in two treatments: boxed for the auth cards, inline for
+// the dashboard's denser forms. Kept here rather than copied per form so the
+// two surfaces can't drift into different shades of red — which they had,
+// along with an error announced as `role="status"`.
 
 export function ErrorMessage({ children }: { children: React.ReactNode }) {
   return (
@@ -35,6 +33,37 @@ export function SuccessMessage({
       )}
     >
       <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none" />
+      {children}
+    </p>
+  );
+}
+
+/**
+ * The same two tones without the box, for the dashboard's denser forms.
+ *
+ * Added because the alternative was a third hand-rolled status paragraph, and
+ * the two that already existed had drifted into different reds and — worse —
+ * one of them announced errors with `role="status"`, which a screen reader
+ * treats as a polite update rather than something that needs attention.
+ */
+export function InlineMessage({
+  tone,
+  children,
+  className,
+}: {
+  tone: "error" | "success";
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      role={tone === "error" ? "alert" : "status"}
+      className={cn(
+        "text-sm",
+        tone === "error" ? "text-red-700" : "text-emerald-700",
+        className,
+      )}
+    >
       {children}
     </p>
   );

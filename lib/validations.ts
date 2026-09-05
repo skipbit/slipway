@@ -56,10 +56,25 @@ export const forgotPasswordSchema = z.object({
   email: emailField,
 });
 
+/**
+ * A token that came back from an emailed link.
+ *
+ * Capped because the value is whatever the client posted, and it goes on to be
+ * hashed and bound into a query on an unauthenticated route. Ours are 43
+ * characters of base64url; 200 leaves room without leaving the door open.
+ */
+function emailTokenField(message: string) {
+  return z.string().min(1, message).max(200, message);
+}
+
+export const verifyEmailSchema = z.object({
+  token: emailTokenField("This confirmation link is invalid."),
+});
+
 export const resetPasswordSchema = z
   .object({
     // Carried in a hidden field from the emailed link.
-    token: z.string().min(1, "This reset link is invalid."),
+    token: emailTokenField("This reset link is invalid."),
     password: passwordField,
     confirmPassword: z.string(),
   })

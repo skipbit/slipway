@@ -5,16 +5,12 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { updateProfileSchema } from "@/lib/validations";
-
-export type SettingsFormState = {
-  error: string | null;
-  success: string | null;
-};
+import { type DashboardFormState } from "@/app/dashboard/actions";
 
 export async function updateProfileAction(
-  _prev: SettingsFormState,
+  _prev: DashboardFormState,
   formData: FormData,
-): Promise<SettingsFormState> {
+): Promise<DashboardFormState> {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 

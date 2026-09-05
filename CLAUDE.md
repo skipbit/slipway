@@ -53,15 +53,39 @@ public pages (needs `npx playwright install chromium` once).
   for Google OAuth. Email/password lives in the Credentials provider with
   bcryptjs hashes on `User.passwordHash`. Google sign-in enables itself when
   `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set (see `isGoogleConfigured`).
+- **Email verification**: unconfirmed is a nudge, not a gate —
+  `components/dashboard/verify-email-notice.tsx` on the overview and settings
+  pages, with a per-user throttled resend. `/verify-email` spends the token on a
+  button press, not on the GET, because mail scanners follow links. Google
+  sign-ins arrive verified via the `linkAccount` event in `lib/auth.ts`, and a
+  completed password reset verifies too (clicking a link we mailed there is what
+  verification asks for). Gate on `user.emailVerified` where your product needs
+  it; nothing here does.
+- **Outbound email runs in `after()`**: signup and the reset request hand the
+  send to `after()` from `next/server` rather than awaiting it. Nobody is
+  waiting on the result — the failure path is a log line either way — and for
+  the reset request it is also what stops response time from telling a caller
+  whether an address exists.
 - **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot
   instead of mailing links nobody can open. Email being unconfigured entirely
   stays legal: that is the documented console-fallback mode.
-- **Password reset**: `lib/password-reset.ts` mints a 256-bit token, stores
+- **Mailed one-time links**: `lib/email-token.ts` covers both password reset
+  and email verification — one `EmailToken` table with a `purpose` enum, because
+  the two differ only in TTL, where they point, and what redeeming them does.
+  Callers never touch a purpose: they use `PASSWORD_RESET_LINK` or
+  `EMAIL_VERIFICATION_LINK`, each of which binds its purpose to its URL, TTL and
+  message, and exposes `issueAndSend` / `isValid` / `redeem`. Passing a purpose
+  around as an argument is how a confirmation link — which anyone gets by
+  signing up — becomes redeemable at `/reset-password`, and that mistake would
+  compile. `@@unique([userId, purpose])` makes "one live link per purpose" the
+  database's rule, so issuing is a single upsert that never touches `User`;
+  redeeming is one transaction. It mints a 256-bit token, stores
   only its SHA-256, and redeems it exactly once (a single
-  `DELETE ... WHERE "expiresAt" > now() RETURNING "userId"` is the gate — the
-  statement is the expiry check and the single-use lock at once). `lib/email.ts` sends it through Resend over plain `fetch` — and when
+  `DELETE ... WHERE "purpose" = $2 AND "expiresAt" > now() RETURNING "userId"`
+  is the gate — one statement is the purpose check, the expiry check and the
+  single-use lock). `lib/email.ts` sends it through Resend over plain `fetch` — and when
   `RESEND_API_KEY`/`EMAIL_FROM` are unset it logs the link instead, so the flow
   works on a fresh clone; that fallback throws under `NODE_ENV=production`
   rather than scattering live tokens through a log. The throw is caught by
@@ -159,10 +183,12 @@ public pages (needs `npx playwright install chromium` once).
 
 Done: landing (hero/features/FAQ), email+Google auth, dashboard
 (overview/settings), profile update, account deletion, auth rate limiting,
-password reset (hashed single-use tokens + Resend, with a console fallback),
+password reset and email verification (hashed single-use tokens + Resend, with
+a console fallback),
 Postgres migrations (prisma migrate), Vitest unit tests + a Playwright smoke
 suite.
-Not done yet (good first tasks): email verification (reuse `lib/email.ts` and
-the `VerificationToken` model, which the adapter still leaves unused), real
-dashboard metrics, expanding e2e into a DB-backed signup → dashboard flow —
-which is also what `/reset-password` needs before it can be covered there.
+Not done yet (good first tasks): real dashboard metrics, expanding e2e into a
+DB-backed signup → dashboard flow — which is also what `/reset-password` and
+`/verify-email` need before they can be covered there, along with the dashboard's
+verification notice. `LOGIN_LIMIT`/`SIGNUP_LIMIT` still collapse to one bucket
+without a proxy in front (see `getClientIp`).

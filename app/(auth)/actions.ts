@@ -2,27 +2,25 @@
 
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { hashPassword, signIn, signOut } from "@/lib/auth";
-import { isEmailConfigured } from "@/lib/env";
-import { sendPasswordResetEmail } from "@/lib/email";
+import { auth, hashPassword, signIn, signOut } from "@/lib/auth";
+import { emailDeliveryUnavailable } from "@/lib/env";
 import {
-  RESET_TOKEN_TTL_SECONDS,
-  consumePasswordResetToken,
-  createPasswordResetToken,
-} from "@/lib/password-reset";
+  EMAIL_VERIFICATION_LINK,
+  PASSWORD_RESET_LINK,
+} from "@/lib/email-token";
 import { prisma } from "@/lib/prisma";
 import {
   getClientIp,
   opaqueKeyPart,
-  rateLimit,
+  throttleMessage,
   type RateLimitConfig,
 } from "@/lib/rate-limit";
-import { externalUrl } from "@/lib/site";
 import {
   forgotPasswordSchema,
   loginSchema,
   resetPasswordSchema,
   signupSchema,
+  verifyEmailSchema,
 } from "@/lib/validations";
 
 export type AuthFormState = { error: string | null };
@@ -89,28 +87,24 @@ const RESET_PASSWORD_LIMIT: RateLimitConfig = {
   max: 10,
   windowSeconds: 60 * 60,
 };
+// Redeeming a confirmation link. Guessing is not the threat (256-bit tokens);
+// this is only here so a flood of submissions cannot pound the database, and it
+// is loose enough that a family behind one address never notices.
+const VERIFY_EMAIL_LIMIT: RateLimitConfig = {
+  max: 100,
+  windowSeconds: 60 * 60,
+};
 
 /**
- * Count one hit against `key` and return the state to hand straight back when
- * the caller is over the limit, or null to carry on.
- *
- * Returning the state rather than a boolean keeps the "what do we tell them"
- * decision in one place across all four actions — the shape that used to be
- * six lines at every entry point, with the `if` easy to leave out.
+ * The throttle in the shape a form action returns. Returning the state rather
+ * than a boolean means forgetting the `if` is not an option.
  */
 async function throttle(
   key: string,
-  { max, windowSeconds }: RateLimitConfig,
+  config: RateLimitConfig,
 ): Promise<AuthFormState | null> {
-  const limit = await rateLimit(key, max, windowSeconds);
-  if (limit.success) return null;
-
-  const minutes = Math.max(1, Math.ceil(limit.retryAfterSeconds / 60));
-  return {
-    error: `Too many attempts. Try again in about ${minutes} minute${
-      minutes === 1 ? "" : "s"
-    }.`,
-  };
+  const error = await throttleMessage(key, config);
+  return error ? { error } : null;
 }
 
 /**
@@ -124,7 +118,14 @@ async function throttleByIp(
 ): Promise<AuthFormState | null> {
   const ip = await getClientIp();
   if (!ip) return null;
-  return throttle(`${prefix}:${ip}`, config);
+  // `:ip:` is not decoration. The IP is a client-supplied header value on a
+  // directly-exposed origin, so it is attacker-chosen text being concatenated
+  // into a bucket key: with `verify:${ip}`, an `x-real-ip` of
+  // `user:<victimId>` lands in `verify:user:<victimId>`, the very bucket the
+  // dashboard's resend uses — five requests and the victim cannot ask for a
+  // confirmation link for an hour. Keeping every IP bucket under its own
+  // segment makes the whole class impossible rather than fixing one instance.
+  return throttle(`${prefix}:ip:${ip}`, config);
 }
 
 export async function loginAction(
@@ -175,8 +176,10 @@ export async function signupAction(
   }
 
   const passwordHash = await hashPassword(parsed.data.password);
+
+  let user: { id: string; email: string };
   try {
-    await prisma.user.create({
+    user = await prisma.user.create({
       data: { name: parsed.data.name, email, passwordHash },
     });
   } catch (err) {
@@ -191,6 +194,17 @@ export async function signupAction(
     }
     throw err;
   }
+
+  // issueAndSend mails off the response path itself, and swallows a send
+  // failure — the account exists, the user can sign in, and the dashboard
+  // offers a resend, so a mail problem must not become "your account wasn't
+  // created". What is awaited here is the token write.
+  //
+  // Not guarded by emailDeliveryUnavailable() the way the other two send sites
+  // are: this one has no way to tell the user anything (it is followed by a
+  // redirect into the dashboard), and the notice there does not claim a
+  // message was sent. The resend button is where that state gets explained.
+  await EMAIL_VERIFICATION_LINK.issueAndSend(user);
 
   try {
     await signIn("credentials", {
@@ -216,10 +230,12 @@ const RESET_REQUESTED_MESSAGE =
 /**
  * Step 1 of the reset: email a single-use link.
  *
- * RESIDUAL LEAK: sending mail takes longer than not sending it, so response
- * time still correlates with account existence. Closing that properly means
- * handing the send to a queue and returning immediately — worth doing if you
- * are a target, overkill for most. The message itself gives nothing away.
+ * RESIDUAL LEAK, now much smaller: the provider round trip happens after the
+ * response (see issueAndSend), so what still separates a real address from a
+ * fictional one is a single upsert — roughly a millisecond, against network
+ * jitter, rather than the hundreds a Resend POST took. Closing it completely
+ * means writing for addresses that do not exist, which is its own mess. The
+ * message itself gives nothing away.
  */
 export async function requestPasswordResetAction(
   _prev: PasswordResetFormState,
@@ -233,12 +249,11 @@ export async function requestPasswordResetAction(
     };
   }
 
-  // Production with no mail credentials can never deliver, and the neutral
-  // message would be a lie repeated forever. Saying so plainly is safe: the
-  // answer depends on our configuration, not on whether the account exists, so
-  // it is the same for everyone and leaks nothing. Development keeps the
-  // console fallback and the neutral message.
-  if (process.env.NODE_ENV === "production" && !isEmailConfigured()) {
+  // The neutral message would be a lie repeated forever. Saying so plainly is
+  // safe: the answer depends on our configuration, not on whether the account
+  // exists, so it is the same for everyone and leaks nothing. Development keeps
+  // the console fallback and the neutral message.
+  if (emailDeliveryUnavailable()) {
     return {
       error:
         "Password reset is unavailable right now. Please contact support.",
@@ -246,10 +261,7 @@ export async function requestPasswordResetAction(
     };
   }
 
-  const ipBlocked = await throttleByIp(
-    "forgot:ip",
-    FORGOT_PASSWORD_IP_LIMIT,
-  );
+  const ipBlocked = await throttleByIp("forgot", FORGOT_PASSWORD_IP_LIMIT);
   if (ipBlocked) return { ...ipBlocked, success: null };
 
   const email = parsed.data.email;
@@ -269,19 +281,7 @@ export async function requestPasswordResetAction(
   // want the other reading ("the verified email *is* the identity, so let them
   // set a password"), drop the passwordHash check and this becomes that.
   if (user?.passwordHash) {
-    try {
-      const token = await createPasswordResetToken(user.id);
-      await sendPasswordResetEmail(
-        user.email,
-        externalUrl(`/reset-password?token=${encodeURIComponent(token)}`),
-        RESET_TOKEN_TTL_SECONDS,
-      );
-    } catch (err) {
-      // Swallowed on purpose: which addresses fail to send is itself a signal,
-      // and the user can simply request another link. The operator gets the
-      // real reason in the server log.
-      console.error("[password-reset] failed to send reset email", err);
-    }
+    await PASSWORD_RESET_LINK.issueAndSend(user);
   }
 
   return { error: null, success: RESET_REQUESTED_MESSAGE };
@@ -319,11 +319,8 @@ export async function resetPasswordAction(
   // deleted in the meantime, the pool exhausted, the process recycled — would
   // leave the user with an unchanged password AND a spent link, sent back to a
   // /forgot-password bucket they have already paid into.
-  const userId = await prisma.$transaction(async (tx) => {
-    const id = await consumePasswordResetToken(parsed.data.token, tx);
-    if (!id) return null;
-    await tx.user.update({ where: { id }, data: { passwordHash } });
-    return id;
+  const userId = await PASSWORD_RESET_LINK.redeem(parsed.data.token, {
+    passwordHash,
   });
 
   if (!userId) {
@@ -344,6 +341,43 @@ export async function resetPasswordAction(
   // Unreachable: signOut throws to redirect. Unlike redirect(), its type does
   // not say so, so TypeScript still wants a return.
   return { error: null };
+}
+
+/** Spends the token that /verify-email checked read-only — reasoning there. */
+export async function verifyEmailAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const parsed = verifyEmailSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
+  }
+
+  const blocked = await throttleByIp("verify", VERIFY_EMAIL_LIMIT);
+  if (blocked) return blocked;
+
+  // redeem() confirms the address on its own — that is what redeeming a mailed
+  // link means — so there is nothing else for this action to write.
+  const userId = await EMAIL_VERIFICATION_LINK.redeem(parsed.data.token);
+
+  if (!userId) {
+    return {
+      error:
+        "This confirmation link is invalid or has expired. Sign in and ask for a new one.",
+    };
+  }
+
+  // Someone can confirm from a different device than the one they signed up
+  // on, so there may be no session here to send to the dashboard — and the
+  // session there is may belong to somebody else, since the token deliberately
+  // is not session-scoped. Only tell the dashboard "confirmed" when it is the
+  // signed-in user's own address that just got confirmed.
+  const session = await auth();
+  redirect(
+    session?.user?.id === userId ? "/dashboard?verified=1" : "/login?verified=1",
+  );
 }
 
 export async function googleSignInAction() {

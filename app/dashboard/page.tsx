@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { CheckCircle2, Circle } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { firstParam } from "@/lib/utils";
+import { VerifyEmailNotice } from "@/components/dashboard/verify-email-notice";
+import { SuccessMessage } from "@/components/ui/message";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -19,17 +22,30 @@ const checklist = [
   { label: "Replace these placeholder stats with real data", done: false },
 ];
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  // `?verified=1` is where verifyEmailAction lands a signed-in visitor.
+  searchParams: Promise<{ verified?: string | string[] }>;
+}) {
+  const verified = firstParam((await searchParams).verified);
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
+    select: { name: true, email: true, emailVerified: true },
   });
   if (!user) redirect("/login");
 
   return (
     <div className="space-y-8">
+      {verified && (
+        <SuccessMessage>Email confirmed. Thanks!</SuccessMessage>
+      )}
+
+      {!user.emailVerified && <VerifyEmailNotice email={user.email} />}
+
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           Welcome back{user.name ? `, ${user.name.split(" ")[0]}` : ""}

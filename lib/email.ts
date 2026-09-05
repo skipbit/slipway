@@ -1,5 +1,6 @@
 import { isEmailConfigured } from "@/lib/env";
 import { siteConfig } from "@/lib/site";
+import { humanDuration } from "@/lib/utils";
 
 // Transactional email over Resend's REST API.
 //
@@ -85,51 +86,110 @@ async function send({ to, subject, html, text }: SendArgs): Promise<void> {
   }
 }
 
-export async function sendPasswordResetEmail(
-  to: string,
-  resetUrl: string,
-  /** Lifetime of the link, so the copy cannot drift from the real TTL. */
-  ttlSeconds: number,
-): Promise<void> {
-  const minutes = Math.round(ttlSeconds / 60);
+type LinkEmail = {
+  to: string;
+  subject: string;
+  heading: string;
+  /** One sentence of context, before the button. */
+  lede: string;
+  cta: string;
+  url: string;
+  /** The "wasn't you?" line. Both messages need one; they differ. */
+  reassurance: string;
+  ttlSeconds: number;
+};
+
+/**
+ * The one shape of message this app sends: a sentence, a button, and the raw
+ * URL underneath for clients that eat buttons.
+ *
+ * Kept as one function so a second link email is copy rather than layout —
+ * getting the inline styles subtly different across messages is how a product
+ * starts looking like two products.
+ */
+async function sendLinkEmail({
+  to,
+  subject,
+  heading,
+  lede,
+  cta,
+  url,
+  reassurance,
+  ttlSeconds,
+}: LinkEmail): Promise<void> {
+  const validFor = humanDuration(ttlSeconds);
   // Safe today (the token is base64url and the name a constant), escaped anyway
   // so the next person to interpolate a user-supplied value here is not the one
   // who discovers this was raw.
-  const href = escapeHtml(resetUrl);
-  const product = escapeHtml(siteConfig.name);
+  const href = escapeHtml(url);
 
   await send({
     to,
-    subject: `Reset your ${siteConfig.name} password`,
+    subject,
     text: [
-      `Someone asked to reset the password for your ${siteConfig.name} account.`,
+      lede,
       ``,
-      `Open this link to choose a new one (valid for ${minutes} minutes):`,
-      resetUrl,
+      `Open this link (valid for ${validFor}):`,
+      url,
       ``,
-      `If that wasn't you, ignore this email — your password stays as it is.`,
+      reassurance,
     ].join("\n"),
     html: `
       <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.6;color:#0f172a">
-        <h1 style="font-size:20px;margin:0 0 16px">Reset your password</h1>
+        <h1 style="font-size:20px;margin:0 0 16px">${escapeHtml(heading)}</h1>
         <p style="margin:0 0 16px">
-          Someone asked to reset the password for your ${product} account.
-          Choose a new one with the button below — the link is valid for
-          ${minutes} minutes.
+          ${escapeHtml(lede)} The link is valid for ${validFor}.
         </p>
         <p style="margin:0 0 24px">
           <a href="${href}"
              style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">
-            Reset password
+            ${escapeHtml(cta)}
           </a>
         </p>
         <p style="margin:0 0 16px;color:#64748b;font-size:14px">
-          If that wasn't you, ignore this email — your password stays as it is.
+          ${escapeHtml(reassurance)}
         </p>
         <p style="margin:0;color:#94a3b8;font-size:12px;word-break:break-all">
           ${href}
         </p>
       </div>
     `,
+  });
+}
+
+export async function sendPasswordResetEmail(
+  to: string,
+  resetUrl: string,
+  /** Lifetime of the link, so the copy cannot drift from the real TTL. */
+  ttlSeconds: number,
+): Promise<void> {
+  await sendLinkEmail({
+    to,
+    ttlSeconds,
+    url: resetUrl,
+    subject: `Reset your ${siteConfig.name} password`,
+    heading: "Reset your password",
+    lede: `Someone asked to reset the password for your ${siteConfig.name} account.`,
+    cta: "Reset password",
+    reassurance:
+      "If that wasn't you, ignore this email — your password stays as it is.",
+  });
+}
+
+export async function sendVerificationEmail(
+  to: string,
+  verifyUrl: string,
+  ttlSeconds: number,
+): Promise<void> {
+  await sendLinkEmail({
+    to,
+    ttlSeconds,
+    url: verifyUrl,
+    subject: `Confirm your email for ${siteConfig.name}`,
+    heading: "Confirm your email",
+    lede: `Confirm this address to finish setting up your ${siteConfig.name} account.`,
+    cta: "Confirm email",
+    reassurance:
+      "If you didn't create this account, ignore this email and nothing further will happen.",
   });
 }

@@ -15,12 +15,15 @@ export default async function LoginPage({
   searchParams,
 }: {
   // `?reset=1` is where resetPasswordAction lands after setting a new password.
-  searchParams: Promise<{ reset?: string | string[] }>;
+  // `?verified=1` is where verifyEmailAction lands a visitor with no session.
+  searchParams: Promise<{ reset?: string | string[]; verified?: string | string[] }>;
 }) {
   const session = await auth();
   if (session?.user) redirect("/dashboard");
 
-  const reset = firstParam((await searchParams).reset);
+  const params = await searchParams;
+  const reset = firstParam(params.reset);
+  const verified = firstParam(params.verified);
 
   return (
     <div>
@@ -32,6 +35,12 @@ export default async function LoginPage({
       {reset && (
         <SuccessMessage className="mt-6">
           Password updated. Log in with your new one.
+        </SuccessMessage>
+      )}
+
+      {verified && (
+        <SuccessMessage className="mt-6">
+          Email confirmed. Log in to continue.
         </SuccessMessage>
       )}
 
