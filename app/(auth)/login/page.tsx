@@ -1,12 +1,13 @@
 import { type Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { authErrorMessage, isConnectError } from "@/lib/auth-errors";
 import { firstParam } from "@/lib/utils";
 import { loginAction } from "@/app/(auth)/actions";
 import { CredentialsForm } from "@/components/auth/credentials-form";
 import { AuthDivider, GoogleButton } from "@/components/auth/google-button";
 import { AuthHeading } from "@/components/ui/auth-heading";
-import { SuccessMessage } from "@/components/ui/message";
+import { ErrorMessage, SuccessMessage } from "@/components/ui/message";
 import { TextLink } from "@/components/ui/text-link";
 
 export const metadata: Metadata = { title: "Log in" };
@@ -16,14 +17,34 @@ export default async function LoginPage({
 }: {
   // `?reset=1` is where resetPasswordAction lands after setting a new password.
   // `?verified=1` is where verifyEmailAction lands a visitor with no session.
-  searchParams: Promise<{ reset?: string | string[]; verified?: string | string[] }>;
+  searchParams: Promise<{
+    reset?: string | string[];
+    verified?: string | string[];
+    // Auth.js sends its failures here (pages.error in lib/auth.ts).
+    error?: string | string[];
+  }>;
 }) {
-  const session = await auth();
-  if (session?.user) redirect("/dashboard");
-
   const params = await searchParams;
   const reset = firstParam(params.reset);
   const verified = firstParam(params.verified);
+  const authError = firstParam(params.error);
+
+  const session = await auth();
+  if (session?.user) {
+    // An Auth.js failure reaching a signed-in visitor came from connecting a
+    // provider in Settings — `pages.error` is global and points here. Carry the
+    // code back to where they started; the plain redirect below would drop it,
+    // which is how the one failure this app actually produces ended up
+    // invisible to the only people who can produce it.
+    // Only codes the connect flow can produce. Forwarding anything else would
+    // greet a signed-in visitor who followed a stale or crafted link with an
+    // explanation of something they never did.
+    redirect(
+      isConnectError(authError)
+        ? `/dashboard/settings?error=${encodeURIComponent(authError!)}`
+        : "/dashboard",
+    );
+  }
 
   return (
     <div>
@@ -42,6 +63,12 @@ export default async function LoginPage({
         <SuccessMessage className="mt-6">
           Email confirmed. Log in to continue.
         </SuccessMessage>
+      )}
+
+      {authError && (
+        <ErrorMessage className="mt-6">
+          {authErrorMessage(authError)}
+        </ErrorMessage>
       )}
 
       <div className="mt-8">

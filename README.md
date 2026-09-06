@@ -169,12 +169,16 @@ Then:
   `app/dashboard/layout.tsx` is possible but not free — that layout runs no
   query today, so a gate there adds a database read to every dashboard request,
   which is exactly what the JWT session strategy exists to avoid.
-- `allowDangerousEmailAccountLinking` is on, so a Google sign-in joins an
-  existing password account with the same address. That is a convenience with a
-  known edge: whoever signed up first owns the row. `emailVerified` is not set
-  by that link when the account already has a password (see the `linkAccount`
-  event), so the flag stays honest — but if you need the linking itself to be
-  safe, turn the flag off or require the existing account to be verified first.
+- Linking a provider to an existing account happens from Settings, while
+  signed in — not by matching email addresses at sign-in. Signing in with Google
+  using an address that already has an account therefore fails with a message
+  pointing at Settings, rather than silently dropping you into that account.
+  `allowDangerousEmailAccountLinking` would do the latter, and the comment on
+  the provider in `lib/auth.ts` explains why that is an account takeover rather
+  than a convenience.
+- An OAuth-only account cannot set a password (reset only mails accounts that
+  already have one), so the disconnect button refuses to remove a user's last
+  sign-in method. Adding a "set a password" flow would lift that.
 - Sessions are JWTs, so a password reset cannot revoke a session cookie stolen
   beforehand — it stays valid until it expires. Closing that means a
   `passwordChangedAt` check on every request, which costs the "no DB hit per

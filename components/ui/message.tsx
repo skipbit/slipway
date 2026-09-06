@@ -6,11 +6,20 @@ import { cn } from "@/lib/utils";
 // two surfaces can't drift into different shades of red — which they had,
 // along with an error announced as `role="status"`.
 
-export function ErrorMessage({ children }: { children: React.ReactNode }) {
+export function ErrorMessage({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <p
       role="alert"
-      className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+      className={cn(
+        "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700",
+        className,
+      )}
     >
       {children}
     </p>
@@ -67,4 +76,35 @@ export function InlineMessage({
       {children}
     </p>
   );
+}
+
+/**
+ * The error-or-success pair every dashboard form renders.
+ *
+ * The third copy of these four lines is what prompted this: the first two had
+ * already drifted into different reds, and one announced errors politely. A
+ * component means the accessibility contract lives in one place.
+ */
+export function FormMessages({
+  state,
+  className,
+}: {
+  state: { error: string | null; success: string | null };
+  className?: string;
+}) {
+  if (state.error) {
+    return (
+      <InlineMessage tone="error" className={className}>
+        {state.error}
+      </InlineMessage>
+    );
+  }
+  if (state.success) {
+    return (
+      <InlineMessage tone="success" className={className}>
+        {state.success}
+      </InlineMessage>
+    );
+  }
+  return null;
 }

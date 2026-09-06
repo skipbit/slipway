@@ -8,7 +8,7 @@ import {
 } from "@/app/dashboard/settings/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { InlineMessage } from "@/components/ui/message";
+import { FormMessages } from "@/components/ui/message";
 
 export function ProfileForm({ defaultName }: { defaultName: string }) {
   const [state, formAction, pending] = useActionState<
@@ -30,10 +30,7 @@ export function ProfileForm({ defaultName }: { defaultName: string }) {
           />
         </div>
       </div>
-      {state.error && <InlineMessage tone="error">{state.error}</InlineMessage>}
-      {state.success && (
-        <InlineMessage tone="success">{state.success}</InlineMessage>
-      )}
+      <FormMessages state={state} />
       <Button type="submit" loading={pending}>
         Save changes
       </Button>

@@ -1,10 +1,13 @@
 "use server";
 
-import { auth } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { auth, signInWithGoogle } from "@/lib/auth";
 import { EMAIL_VERIFICATION_LINK } from "@/lib/email-token";
 import { emailDeliveryUnavailable } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { throttleMessage, type RateLimitConfig } from "@/lib/rate-limit";
+import { canDisconnect } from "@/lib/auth-policy";
 
 /** What a dashboard form action hands back to `useActionState`. */
 export type DashboardFormState = {
@@ -74,4 +77,64 @@ export async function resendVerificationAction(
     error: null,
     success: `Confirmation sent to ${user.email}. Check your inbox.`,
   };
+}
+
+/**
+ * Connect Google to the account you are already signed in as.
+ *
+ * An ordinary sign-in, started from a page that already required a session —
+ * see the Google provider comment in lib/auth.ts for why that is the only safe
+ * way to link. A failure comes back as `?error=` on this page.
+ *
+ * No form state, because there is nothing to return: signIn throws to redirect.
+ */
+export async function connectGoogleAction(): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+
+  await signInWithGoogle("/dashboard/settings?connected=google");
+}
+
+/**
+ * Detach Google.
+ *
+ * Named for the provider, like its opposite number, rather than taking one as a
+ * form field: the UI renders exactly one row, so a parameter would be an
+ * abstraction with a single caller and a validation branch nothing can reach.
+ * A second provider parameterises both sides at once.
+ *
+ * The rule about not leaving an account without a way in is `canDisconnect`, so
+ * that this and the settings page — which uses it to stop offering a button
+ * that can only fail — cannot come to different conclusions.
+ */
+export async function disconnectGoogleAction(
+  _prev: DashboardFormState,
+  _formData: FormData,
+): Promise<DashboardFormState> {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { passwordHash: true, accounts: { select: { provider: true } } },
+  });
+  if (!user) redirect("/login");
+
+  if (!canDisconnect(user, "google")) {
+    return {
+      error:
+        "That is your only way to sign in — disconnecting it would lock you out.",
+      success: null,
+    };
+  }
+
+  // deleteMany, not delete: the row is keyed by (provider, providerAccountId),
+  // which this action does not know, and scoping by userId is what keeps one
+  // user from detaching another's.
+  await prisma.account.deleteMany({
+    where: { userId: session.user.id, provider: "google" },
+  });
+
+  revalidatePath("/dashboard/settings");
+  return { error: null, success: "Disconnected." };
 }

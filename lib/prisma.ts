@@ -1,3 +1,9 @@
+// Importing this from a client component is a mistake that used to surface as
+// `Module not found: Can't resolve 'dns'` from deep inside pg, at build time,
+// naming nothing useful. `server-only` turns it into an error that names this
+// module and the file that reached for it.
+import "server-only";
+
 import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 

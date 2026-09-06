@@ -25,6 +25,24 @@ const eslintConfig = [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      // Auth.js's own docs show this option on providers, so the natural way to
+      // add GitHub or Discord is to copy an example that carries it. It signs a
+      // visitor into whatever account already holds their email address, which
+      // is an account takeover; linking belongs in connectGoogleAction, from a
+      // session. A comment on the Google provider only guards the Google
+      // provider — this guards the repository.
+      "no-restricted-syntax": [
+        "error",
+        {
+          // Both key forms: `{ allowDangerous...: true }` is an Identifier key,
+          // `{ "allowDangerous...": true }` a Literal, and a selector matching
+          // only the first is a guard with a documented promise it does not keep.
+          selector:
+            "Property[key.name='allowDangerousEmailAccountLinking'], Property[key.value='allowDangerousEmailAccountLinking']",
+          message:
+            "Don't enable allowDangerousEmailAccountLinking — it signs users into an account that merely shares their email address. Link providers from an authenticated session instead (app/dashboard/actions.ts#connectGoogleAction); see the Google provider note in lib/auth.ts.",
+        },
+      ],
     },
   },
   {

@@ -66,6 +66,32 @@ public pages (needs `npx playwright install chromium` once).
   waiting on the result — the failure path is a log line either way — and for
   the reset request it is also what stops response time from telling a caller
   whether an address exists.
+- **OAuth linking is session-only**: `allowDangerousEmailAccountLinking` is
+  off, so Auth.js refuses a Google sign-in whose address already belongs to an
+  account (`OAuthAccountNotLinked`, surfaced on `/login` via `pages.error`).
+  Providers are attached from Settings instead — `connectGoogleAction` starts
+  an ordinary `signIn("google")` from a page that already required a session,
+  and Auth.js links onto the session's user without going near the
+  address-matching branch. The rules behind both sides live in
+  `lib/auth-policy.ts`: `canDisconnect` refuses to remove a user's last sign-in
+  method (the settings page uses it to disable the button rather than offer one
+  that only fails), and `providerVouchedForThisAccount` is why linking only
+  marks the address confirmed when the provider's address IS the account's —
+  connecting somebody else's Google says nothing about the row it attaches to.
+  Don't turn the flag back on to "fix" a linking complaint — eslint refuses it
+  repo-wide, and the provider comment in `lib/auth.ts` says what it costs.
+  `OAuthAccountNotLinked` reaches `/login` through `pages.signIn`, not
+  `pages.error`; setting the latter would route Configuration/MissingSecret to a
+  page that rethrows them.
+- **`lib/auth.ts` and `lib/prisma.ts` are marked `server-only`**: importing
+  either from a `"use client"` file is a build error that names the boundary.
+  Without the marker the same mistake surfaced as
+  `Module not found: Can't resolve 'dns'` from inside `pg` — which is why
+  `components/ui/google-icon.tsx` sits apart from `components/auth/google-button.tsx`
+  — `components/auth/` is for things coupled to Auth.js, and an icon is not one.
+  Vitest does not set the `react-server` condition, so `vitest.config.ts` stubs
+  the marker; without that a unit test importing either module fails on the
+  marker rather than on what it was testing.
 - **Startup config check**: `instrumentation.ts` runs `productionConfigProblems()`
   (`lib/env.ts`) once per server start, so a production deploy missing `APP_URL`
   — or with only one half of `RESEND_API_KEY`/`EMAIL_FROM` — fails to boot

@@ -29,3 +29,13 @@ export function externalUrl(path: string): string {
   const configured = process.env.APP_URL?.trim().replace(/\/+$/, "");
   return `${configured || siteConfig.url}${path}`;
 }
+
+/**
+ * The hint shown wherever Google sign-in is offered but not configured.
+ *
+ * One string, because it names two environment variables and the two places
+ * that show it — the login button and the settings row — are exactly the two
+ * places someone looks when wondering why they cannot use Google.
+ */
+export const GOOGLE_NOT_CONFIGURED =
+  "Set AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET in .env to enable";
