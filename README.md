@@ -179,6 +179,13 @@ Then:
 - An OAuth-only account cannot set a password (reset only mails accounts that
   already have one), so the disconnect button refuses to remove a user's last
   sign-in method. Adding a "set a password" flow would lift that.
+- Connecting from Settings skips the email-collision check that the signed-out
+  path performs, so you can attach a Google account whose address is *another*
+  local account's email — and that account can then never link it. It needs you
+  to own the Google account, so it is a data-model wart rather than a takeover;
+  closing it means deciding whether a provider's address has to match the
+  account's, which would also rule out signing in with a personal Google on a
+  work-address account.
 - Sessions are JWTs, so a password reset cannot revoke a session cookie stolen
   beforehand — it stays valid until it expires. Closing that means a
   `passwordChangedAt` check on every request, which costs the "no DB hit per
@@ -352,6 +359,12 @@ per-IP でなくなります。`FORGOT_PASSWORD_IP_LIMIT` はその状態でも�
   することもできますが無料ではありません — この layout は現在クエリを 1 本も撃って
   いないため、そこに置くと全ダッシュボードリクエストに DB 読み取りが乗ります。
   JWT セッション戦略が避けているのはまさにそれです。
+- 設定画面からの連結は、サインアウト経路が行うメールアドレス衝突チェックを通りません。
+  そのため「**別の**ローカルアカウントのメールアドレスを持つ Google アカウント」を
+  繋げてしまい、以後その別アカウントは永久に連携できません。当該 Google アカウントを
+  自分が所有している必要があるので乗っ取りではなくデータモデルの歪みです。塞ぐには
+  「プロバイダのアドレスはアカウントのアドレスと一致必須か」を決める必要があり、それは
+  「勤務先アドレスのアカウントに個人の Google でログインする」を禁止することでもあります。
 - セッションが JWT のため、リセット前に盗まれたセッション Cookie はリセットでは
   失効せず、期限まで有効なままです。塞ぐには全リクエストで `passwordChangedAt` を
   照合する必要があり、JWT を選んだ理由である「リクエスト毎の DB アクセスなし」を

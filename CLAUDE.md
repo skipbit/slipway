@@ -210,9 +210,9 @@ public pages (needs `npx playwright install chromium` once).
 Done: landing (hero/features/FAQ), email+Google auth, dashboard
 (overview/settings), profile update, account deletion, auth rate limiting,
 password reset and email verification (hashed single-use tokens + Resend, with
-a console fallback),
-Postgres migrations (prisma migrate), Vitest unit tests + a Playwright smoke
-suite.
+a console fallback), connected accounts (link a provider from Settings, never by
+matching an email address at sign-in), Postgres migrations (prisma migrate),
+Vitest unit tests + a Playwright smoke suite.
 Not done yet (good first tasks): real dashboard metrics, expanding e2e into a
 DB-backed signup → dashboard flow — which is also what `/reset-password` and
 `/verify-email` need before they can be covered there, along with the dashboard's
